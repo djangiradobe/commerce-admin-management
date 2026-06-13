@@ -1,0 +1,2717 @@
+// web/src/components/App.js
+import React2 from "react";
+import { Provider, lightTheme } from "@adobe/react-spectrum";
+import { ErrorBoundary } from "react-error-boundary";
+import { Route, Routes, HashRouter } from "react-router-dom";
+
+// web/src/components/ExtensionRegistration.js
+import { register } from "@adobe/uix-guest";
+
+// web/src/components/MainPage.js
+import { View as View3 } from "@adobe/react-spectrum";
+import { attach } from "@adobe/uix-guest";
+import { useEffect as useEffect6 } from "react";
+import { useLocation as useLocation2 } from "react-router-dom";
+
+// web/src/settings.js
+var DEFAULT_ACTION_KEYS = {
+  commerceRestGet: "ConfigurationManagement/commerce-rest-get",
+  systemConfigList: "ConfigurationManagement/system-config-list",
+  systemConfigSave: "ConfigurationManagement/system-config-save",
+  systemConfigSchema: "ConfigurationManagement/system-config-schema",
+  exportConfig: "ConfigurationManagement/export-config",
+  importConfig: "ConfigurationManagement/import-config",
+  syncStoreMappings: "ConfigurationManagement/sync-store-mappings-from-commerce"
+};
+var extensionId = "ConfigurationManagement";
+var actionUrls = {};
+var actionKeys = { ...DEFAULT_ACTION_KEYS };
+function getExtensionId() {
+  return extensionId;
+}
+function getActionKey(name) {
+  return actionKeys[name] || name;
+}
+function getActionUrl(actionKey) {
+  return actionUrls[actionKey];
+}
+function configureWeb({
+  extensionId: nextExtensionId,
+  actionUrls: nextActionUrls,
+  actionKeys: nextActionKeys
+} = {}) {
+  if (nextExtensionId != null) {
+    extensionId = String(nextExtensionId);
+  }
+  if (nextActionUrls) {
+    actionUrls = { ...nextActionUrls };
+  }
+  if (nextActionKeys) {
+    actionKeys = { ...actionKeys, ...nextActionKeys };
+  }
+}
+
+// web/src/components/AppSectionNav.js
+import { useLocation, useNavigate } from "react-router-dom";
+import Settings from "@spectrum-icons/workflow/Settings";
+import { jsx, jsxs } from "react/jsx-runtime";
+var NAV_ITEMS = [
+  { key: "/", label: "System Configurations", Icon: Settings }
+];
+function AppSectionNav() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const activeKey = NAV_ITEMS.some((it) => it.key === location.pathname) ? location.pathname : "/";
+  return /* @__PURE__ */ jsx("div", { className: "sm-tab-bar", children: /* @__PURE__ */ jsx("div", { className: "sm-tab-bar__track", role: "tablist", "aria-label": "Application sections", children: NAV_ITEMS.map(({ key, label, Icon }) => {
+    const active = key === activeKey;
+    return /* @__PURE__ */ jsxs(
+      "button",
+      {
+        type: "button",
+        role: "tab",
+        "aria-selected": active,
+        className: `sm-tab${active ? " is-active" : ""}`,
+        onClick: () => {
+          if (!active) navigate(key);
+        },
+        children: [
+          /* @__PURE__ */ jsx("span", { className: "sm-tab__icon", children: /* @__PURE__ */ jsx(Icon, { size: "XS" }) }),
+          label
+        ]
+      },
+      key
+    );
+  }) }) });
+}
+
+// web/src/components/SystemConfig.js
+import { useState as useState5, useMemo as useMemo3, useEffect as useEffect5, useRef as useRef2 } from "react";
+import { Link } from "react-router-dom";
+import {
+  View as View2,
+  Flex as Flex2,
+  Heading as Heading2,
+  Text as Text2,
+  Button as Button2,
+  ActionButton as ActionButton2,
+  TooltipTrigger,
+  Tooltip,
+  TextField as TextField2,
+  TextArea,
+  NumberField,
+  Switch as Switch2,
+  Checkbox as Checkbox2,
+  Picker as Picker2,
+  Item as Item2,
+  Section,
+  ProgressCircle as ProgressCircle2,
+  ProgressBar,
+  Divider as Divider2,
+  Well as Well2
+} from "@adobe/react-spectrum";
+import Settings2 from "@spectrum-icons/workflow/Settings";
+import Globe from "@spectrum-icons/workflow/Globe";
+import Refresh from "@spectrum-icons/workflow/Refresh";
+import Edit from "@spectrum-icons/workflow/Edit";
+import CloudUpload from "@spectrum-icons/workflow/UploadToCloud";
+import LockClosed from "@spectrum-icons/workflow/LockClosed";
+import Back from "@spectrum-icons/workflow/Back";
+import ChevronDown from "@spectrum-icons/workflow/ChevronDown";
+import ChevronRight from "@spectrum-icons/workflow/ChevronRight";
+
+// web/src/hooks/useSystemConfig.js
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+// web/src/utils.js
+async function callAction(props, action, operation, body = {}) {
+  var _a;
+  const url = getActionUrl(action);
+  if (!url) {
+    throw new Error(`Action ${action} is not configured. Call configureWeb({ actionUrls }) with deploy-time URLs.`);
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-gw-ims-org-id": props.ims && props.ims.org || "",
+      authorization: `Bearer ${props.ims && props.ims.token || ""}`
+    },
+    body: JSON.stringify({
+      operation,
+      ...body
+    })
+  });
+  const text = await res.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`Invalid response from ${action}: ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    const msg = (parsed == null ? void 0 : parsed.error) || ((_a = parsed == null ? void 0 : parsed.body) == null ? void 0 : _a.error) || (parsed == null ? void 0 : parsed.message) || `Action ${action} failed with HTTP ${res.status}`;
+    const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    err.status = res.status;
+    err.response = parsed;
+    throw err;
+  }
+  return parsed;
+}
+
+// web/src/schema/systemConfigSchema.js
+var FIELD_TYPES = ["text", "textarea", "password", "number", "select", "boolean"];
+var SCOPES = ["default", "websites", "stores"];
+var SENSITIVE_FIELD_TYPES = /* @__PURE__ */ new Set(["password"]);
+function emptySchema() {
+  return { sections: [] };
+}
+function getFieldPath(sectionId, groupId, fieldId) {
+  return `${sectionId}/${groupId}/${fieldId}`;
+}
+function isFieldSensitive(field) {
+  return !!(field == null ? void 0 : field.sensitive) || SENSITIVE_FIELD_TYPES.has(field == null ? void 0 : field.type);
+}
+function isFieldVisibleAtScope(field, scope) {
+  const allowed = (field == null ? void 0 : field.showIn) || ["default"];
+  return allowed.includes(scope);
+}
+function flattenFields(schema) {
+  const out = [];
+  if (!schema || !Array.isArray(schema.sections)) return out;
+  for (const section of schema.sections) {
+    if (!Array.isArray(section.groups)) continue;
+    for (const group of section.groups) {
+      if (!Array.isArray(group.fields)) continue;
+      for (const field of group.fields) {
+        out.push({
+          section,
+          group,
+          field,
+          path: getFieldPath(section.id, group.id, field.id),
+          sensitive: isFieldSensitive(field)
+        });
+      }
+    }
+  }
+  return out;
+}
+function coerceDefault(field) {
+  var _a;
+  switch (field == null ? void 0 : field.type) {
+    case "boolean":
+      return !!field.default;
+    case "number":
+      return typeof field.default === "number" ? field.default : Number(field.default) || 0;
+    default:
+      return (_a = field == null ? void 0 : field.default) != null ? _a : "";
+  }
+}
+
+// web/src/utils/storeMappingsFromCommerceRest.js
+function localeToLanguageCode(locale) {
+  if (locale == null || locale === "") return null;
+  const s = String(locale).trim();
+  const head = s.split(/[-_]/u)[0];
+  if (head && /^[a-zA-Z]{2,8}$/.test(head)) return head.toLowerCase();
+  return null;
+}
+function inferLanguageFromStoreCode(code) {
+  if (typeof code !== "string") return null;
+  const m = /^([a-z]{2})[-_]/i.exec(code);
+  return m ? m[1].toLowerCase() : null;
+}
+function buildStoreMappingsFromCommercePayload(websitesRaw, storeViewsRaw, storeConfigsRaw) {
+  const websiteIdToCode = /* @__PURE__ */ new Map();
+  if (Array.isArray(websitesRaw)) {
+    for (const w of websitesRaw) {
+      if (w && w.id != null && w.code != null) {
+        websiteIdToCode.set(String(w.id), String(w.code));
+      }
+    }
+  }
+  const storeCodeToLocale = /* @__PURE__ */ new Map();
+  if (Array.isArray(storeConfigsRaw)) {
+    for (const cfg of storeConfigsRaw) {
+      if (cfg && cfg.code != null && cfg.locale != null) {
+        storeCodeToLocale.set(String(cfg.code), String(cfg.locale));
+      }
+    }
+  }
+  const mappings = {};
+  if (!Array.isArray(storeViewsRaw)) return mappings;
+  for (const s of storeViewsRaw) {
+    if (!s || s.id == null || s.code == null) continue;
+    const id = String(s.id);
+    const code = String(s.code);
+    const websiteId = s.website_id != null ? String(s.website_id) : "";
+    const websiteCode = websiteIdToCode.get(websiteId) || "";
+    const languageCode = localeToLanguageCode(storeCodeToLocale.get(code)) || inferLanguageFromStoreCode(code) || "en";
+    mappings[id] = {
+      code,
+      language_code: languageCode,
+      website_code: websiteCode,
+      website_id: websiteId
+    };
+  }
+  return mappings;
+}
+
+// web/src/hooks/useSystemConfig.js
+var SENSITIVE_PLACEHOLDER = "__SENSITIVE_UNCHANGED__";
+var USE_DEFAULT_SENTINEL = "__USE_DEFAULT__";
+var DEFAULT_SCOPE = { scope: "default", scopeId: "0" };
+var STORE_MAPPINGS_PATH = "general/settings/store_mappings";
+function useSystemConfig(props, schema) {
+  const fields = useMemo(() => flattenFields(schema), [schema]);
+  const allPaths = useMemo(() => fields.map((f) => f.path), [fields]);
+  const sensitivePaths = useMemo(
+    () => fields.filter((f) => f.sensitive).map((f) => f.path),
+    [fields]
+  );
+  const [scopeTree, setScopeTree] = useState({ websites: [], storeGroups: [], stores: [], loading: true, error: null });
+  const [scope, setScope] = useState(DEFAULT_SCOPE);
+  const [serverItems, setServerItems] = useState({});
+  const [localValues, setLocalValues] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+  const parentWebsiteId = useMemo(() => {
+    if (scope.scope !== "stores") return void 0;
+    const store = scopeTree.stores.find((s) => String(s.id) === String(scope.scopeId));
+    return store == null ? void 0 : store.website_id;
+  }, [scope, scopeTree.stores]);
+  const fetchScopeTree = useCallback(async () => {
+    setScopeTree((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const [websitesRes, groupsRes, storesRes, configsRes] = await Promise.all([
+        callAction(props, getActionKey("commerceRestGet"), "store/websites"),
+        callAction(props, getActionKey("commerceRestGet"), "store/storeGroups"),
+        callAction(props, getActionKey("commerceRestGet"), "store/storeViews"),
+        callAction(props, getActionKey("commerceRestGet"), "store/storeConfigs").catch(() => null)
+      ]);
+      const websitesRaw = (websitesRes == null ? void 0 : websitesRes.body) || websitesRes;
+      const groupsRaw = (groupsRes == null ? void 0 : groupsRes.body) || groupsRes;
+      const storesRaw = (storesRes == null ? void 0 : storesRes.body) || storesRes;
+      const configsRaw = (configsRes == null ? void 0 : configsRes.body) || configsRes;
+      const websites = Array.isArray(websitesRaw) ? websitesRaw.filter((w) => w.id !== 0 && w.code !== "admin") : [];
+      const storeGroups = Array.isArray(groupsRaw) ? groupsRaw.filter((g) => g.id !== 0) : [];
+      const stores = Array.isArray(storesRaw) ? storesRaw.filter((s) => s.id !== 0 && s.code !== "admin") : [];
+      setScopeTree({ websites, storeGroups, stores, loading: false, error: null });
+      const storeMappings = buildStoreMappingsFromCommercePayload(websitesRaw, storesRaw, configsRaw);
+      if (Object.keys(storeMappings).length > 0) {
+        try {
+          await callAction(props, getActionKey("systemConfigSave"), "", {
+            values: { [STORE_MAPPINGS_PATH]: JSON.stringify(storeMappings, null, 2) },
+            sensitivePaths: [],
+            scope: "default",
+            scopeId: "0"
+          });
+        } catch (err) {
+          console.error("Failed to persist store_mappings to ABDB after loading Commerce stores", err);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load stores from Commerce", e);
+      setScopeTree({ websites: [], storeGroups: [], stores: [], loading: false, error: e.message || "Failed to fetch stores" });
+    }
+  }, [props]);
+  useEffect(() => {
+    fetchScopeTree();
+  }, [fetchScopeTree]);
+  const fetchAtScope = useCallback(async () => {
+    var _a;
+    if (allPaths.length === 0) {
+      setServerItems({});
+      setLocalValues({});
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await callAction(
+        props,
+        getActionKey("systemConfigList"),
+        "",
+        {
+          paths: allPaths,
+          sensitivePaths,
+          scope: scope.scope,
+          scopeId: scope.scopeId,
+          parentWebsiteId
+        }
+      );
+      const items = (response == null ? void 0 : response.items) || ((_a = response == null ? void 0 : response.body) == null ? void 0 : _a.items) || {};
+      setServerItems(items);
+      setLocalValues({});
+    } catch (e) {
+      console.error("Failed to load system config", e);
+      setError(e.message || "Failed to load system config");
+    } finally {
+      setLoading(false);
+    }
+  }, [props, allPaths, sensitivePaths, scope, parentWebsiteId]);
+  useEffect(() => {
+    fetchAtScope();
+  }, [fetchAtScope]);
+  const getDisplayValue = useCallback((path, fallback) => {
+    if (Object.prototype.hasOwnProperty.call(localValues, path)) {
+      return localValues[path];
+    }
+    const item = serverItems[path];
+    if (item && item.value !== void 0) return item.value;
+    return fallback;
+  }, [localValues, serverItems]);
+  const getOrigin = useCallback((path) => {
+    const item = serverItems[path];
+    return (item == null ? void 0 : item.origin) || null;
+  }, [serverItems]);
+  const isInheritedAtScope = useCallback((path) => {
+    if (scope.scope === "default") return false;
+    if (Object.prototype.hasOwnProperty.call(localValues, path)) {
+      return localValues[path] === USE_DEFAULT_SENTINEL;
+    }
+    const origin = getOrigin(path);
+    if (!origin) return true;
+    return !(origin.scope === scope.scope && String(origin.scopeId) === String(scope.scopeId));
+  }, [scope, localValues, getOrigin]);
+  const setFieldValue = useCallback((path, value) => {
+    setLocalValues((prev) => ({ ...prev, [path]: value }));
+  }, []);
+  const setUseDefault = useCallback((path, useDefault) => {
+    setLocalValues((prev) => {
+      var _a;
+      const next = { ...prev };
+      if (useDefault) {
+        next[path] = USE_DEFAULT_SENTINEL;
+      } else {
+        const current = (_a = serverItems[path]) == null ? void 0 : _a.value;
+        next[path] = current !== void 0 ? current : "";
+      }
+      return next;
+    });
+  }, [serverItems]);
+  const dirtyCount = useMemo(() => Object.keys(localValues).length, [localValues]);
+  const save = useCallback(async () => {
+    if (dirtyCount === 0) return true;
+    setSaving(true);
+    setError(null);
+    try {
+      const visibleFieldsByPath = new Map(
+        fields.filter((f) => isFieldVisibleAtScope(f.field, scope.scope)).map((f) => [f.path, f])
+      );
+      const payload = {};
+      for (const [path, value] of Object.entries(localValues)) {
+        if (!visibleFieldsByPath.has(path)) continue;
+        payload[path] = value;
+      }
+      if (Object.keys(payload).length === 0) {
+        setSaving(false);
+        return true;
+      }
+      await callAction(
+        props,
+        getActionKey("systemConfigSave"),
+        "",
+        {
+          values: payload,
+          sensitivePaths,
+          scope: scope.scope,
+          scopeId: scope.scopeId
+        }
+      );
+      setSavedAt(Date.now());
+      await fetchAtScope();
+      return true;
+    } catch (e) {
+      console.error("Failed to save system config", e);
+      setError(e.message || "Failed to save system config");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [props, dirtyCount, localValues, sensitivePaths, scope, fields, fetchAtScope]);
+  const reset = useCallback(() => {
+    setLocalValues({});
+  }, []);
+  return {
+    fields,
+    scope,
+    setScope,
+    scopeTree,
+    refreshScopeTree: fetchScopeTree,
+    getDisplayValue,
+    getOrigin,
+    isInheritedAtScope,
+    setFieldValue,
+    setUseDefault,
+    dirtyCount,
+    loading,
+    saving,
+    error,
+    savedAt,
+    save,
+    reset,
+    refresh: fetchAtScope,
+    SENSITIVE_PLACEHOLDER,
+    USE_DEFAULT_SENTINEL
+  };
+}
+
+// web/src/hooks/useSystemConfigSchema.js
+import { useCallback as useCallback2, useEffect as useEffect2, useState as useState2 } from "react";
+function useSystemConfigSchema(props) {
+  const [schema, setSchema] = useState2(emptySchema());
+  const [loading, setLoading] = useState2(true);
+  const [saving, setSaving] = useState2(false);
+  const [error, setError] = useState2(null);
+  const fetchSchema = useCallback2(async () => {
+    var _a;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await callAction(
+        props,
+        getActionKey("systemConfigSchema"),
+        "get"
+      );
+      const fetched = (response == null ? void 0 : response.schema) || ((_a = response == null ? void 0 : response.body) == null ? void 0 : _a.schema) || emptySchema();
+      setSchema(fetched);
+    } catch (e) {
+      console.error("Failed to load schema", e);
+      setError(e.message || "Failed to load schema");
+      setSchema(emptySchema());
+    } finally {
+      setLoading(false);
+    }
+  }, [props]);
+  useEffect2(() => {
+    fetchSchema();
+  }, [fetchSchema]);
+  const saveSchema = useCallback2(async (nextSchema, { confirmCascade = false } = {}) => {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    setSaving(true);
+    setError(null);
+    try {
+      let response;
+      try {
+        response = await callAction(
+          props,
+          getActionKey("systemConfigSchema"),
+          "save",
+          { schema: nextSchema, ...confirmCascade ? { confirmCascade: true } : {} }
+        );
+      } catch (err) {
+        const removed = ((_a = err == null ? void 0 : err.response) == null ? void 0 : _a.removedPaths) || ((_c = (_b = err == null ? void 0 : err.response) == null ? void 0 : _b.body) == null ? void 0 : _c.removedPaths);
+        if ((err == null ? void 0 : err.status) === 409 && Array.isArray(removed)) {
+          return { needsConfirmation: true, removedPaths: removed };
+        }
+        throw err;
+      }
+      const saved = (response == null ? void 0 : response.schema) || ((_d = response == null ? void 0 : response.body) == null ? void 0 : _d.schema);
+      if (!saved) {
+        await fetchSchema();
+        setError("Schema save did not return the saved schema. See server logs.");
+        return { ok: false };
+      }
+      setSchema(saved);
+      return {
+        ok: true,
+        removedPaths: (response == null ? void 0 : response.removedPaths) || ((_e = response == null ? void 0 : response.body) == null ? void 0 : _e.removedPaths) || [],
+        deletedCount: (_h = (_g = response == null ? void 0 : response.deletedCount) != null ? _g : (_f = response == null ? void 0 : response.body) == null ? void 0 : _f.deletedCount) != null ? _h : 0
+      };
+    } catch (e) {
+      console.error("Failed to save schema", e);
+      setError(e.message || "Failed to save schema");
+      return { ok: false };
+    } finally {
+      setSaving(false);
+    }
+  }, [props, fetchSchema]);
+  return {
+    schema,
+    setSchema,
+    saveSchema,
+    refresh: fetchSchema,
+    loading,
+    saving,
+    error
+  };
+}
+
+// web/src/hooks/useConfirm.js
+import React, { useCallback as useCallback3, useEffect as useEffect3, useRef, useState as useState3 } from "react";
+import ReactDOM from "react-dom";
+
+// web/src/theme.js
+var THEME = {
+  color: {
+    bg: "var(--sm-color-bg)",
+    surface: "var(--sm-color-surface)",
+    surfaceMuted: "var(--sm-color-surface-muted)",
+    surfaceSubtle: "var(--sm-color-surface-subtle)",
+    border: "var(--sm-color-border)",
+    borderStrong: "var(--sm-color-border-strong)",
+    text: "var(--sm-color-text)",
+    textMuted: "var(--sm-color-text-muted)",
+    textStrong: "var(--sm-color-text-strong)",
+    textSoft: "var(--sm-color-text-soft)",
+    textInverse: "var(--sm-color-text-inverse)",
+    surfacePanel: "var(--sm-color-surface-panel)",
+    accent: "var(--sm-color-accent)",
+    accentHover: "var(--sm-color-accent-hover)",
+    accentSoft: "var(--sm-color-accent-soft)",
+    accentTint: "var(--sm-color-accent-tint)",
+    success: "var(--sm-color-success)",
+    successHover: "var(--sm-color-success-hover)",
+    successSoft: "var(--sm-color-success-soft)",
+    warning: "var(--sm-color-warning)",
+    warningHover: "var(--sm-color-warning-hover)",
+    warningSoft: "var(--sm-color-warning-soft)",
+    warningBorder: "var(--sm-color-warning-border)",
+    warningText: "var(--sm-color-warning-text)",
+    warningTint: "var(--sm-color-warning-tint)",
+    danger: "var(--sm-color-danger)",
+    dangerHover: "var(--sm-color-danger-hover)",
+    dangerSoft: "var(--sm-color-danger-soft)",
+    dangerTint: "var(--sm-color-danger-tint)",
+    neutralSoft: "var(--sm-color-neutral-soft)",
+    neutralText: "var(--sm-color-neutral-text)",
+    overlay: "var(--sm-color-overlay)"
+  },
+  radius: {
+    sm: "var(--sm-radius-sm)",
+    md: "var(--sm-radius-md)",
+    lg: "var(--sm-radius-lg)",
+    xl: "var(--sm-radius-xl)",
+    xxl: "var(--sm-radius-2xl)",
+    pill: "var(--sm-radius-pill)"
+  },
+  space: {
+    1: "var(--sm-space-1)",
+    2: "var(--sm-space-2)",
+    3: "var(--sm-space-3)",
+    4: "var(--sm-space-4)",
+    5: "var(--sm-space-5)",
+    6: "var(--sm-space-6)"
+  },
+  shadow: {
+    xs: "var(--sm-shadow-xs)",
+    sm: "var(--sm-shadow-sm)",
+    md: "var(--sm-shadow-md)",
+    pill: "var(--sm-shadow-pill)",
+    floating: "var(--sm-shadow-floating)",
+    dropdown: "var(--sm-shadow-dropdown)",
+    modal: "var(--sm-shadow-modal)",
+    inset: "var(--sm-shadow-inset)"
+  },
+  font: {
+    family: "var(--sm-font-family)",
+    mono: "var(--sm-font-mono)",
+    sizeXs: "var(--sm-font-size-xs)",
+    sizeSm: "var(--sm-font-size-sm)",
+    sizeMd: "var(--sm-font-size-md)",
+    sizeLg: "var(--sm-font-size-lg)",
+    weightRegular: "var(--sm-font-weight-regular)",
+    weightMedium: "var(--sm-font-weight-medium)",
+    weightSemi: "var(--sm-font-weight-semibold)",
+    weightBold: "var(--sm-font-weight-bold)"
+  }
+};
+var PALETTE = { ...THEME.color };
+var RADIUS = { ...THEME.radius };
+var SHADOW = { ...THEME.shadow };
+var SPACE = { ...THEME.space };
+var FONT = { ...THEME.font };
+
+// web/src/hooks/useConfirm.js
+import { jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
+function useConfirm() {
+  const [state, setState] = useState3(null);
+  const resolverRef = useRef(null);
+  const confirm = useCallback3((opts = {}) => {
+    return new Promise((resolve) => {
+      resolverRef.current = resolve;
+      setState({ options: opts });
+    });
+  }, []);
+  const finish = useCallback3((result) => {
+    const resolve = resolverRef.current;
+    resolverRef.current = null;
+    setState(null);
+    if (resolve) resolve(result);
+  }, []);
+  useEffect3(() => {
+    if (!state) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") finish(state.options && state.options.choices ? null : false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [state, finish]);
+  useEffect3(() => {
+    if (!state) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [state]);
+  const dialog = state ? ReactDOM.createPortal(
+    /* @__PURE__ */ jsx2(
+      ConfirmModal,
+      {
+        options: state.options,
+        onConfirm: () => finish(true),
+        onCancel: () => finish(state.options && state.options.choices ? null : false),
+        onChoose: (value) => finish(value)
+      }
+    ),
+    document.body
+  ) : null;
+  return { confirm, dialog };
+}
+var VARIANT_STYLES = {
+  destructive: { color: PALETTE.danger, primaryBg: PALETTE.danger, primaryBgHover: PALETTE.dangerHover, tint: PALETTE.dangerTint, icon: "\u26A0" },
+  warning: { color: PALETTE.warning, primaryBg: PALETTE.warning, primaryBgHover: PALETTE.warningHover, tint: PALETTE.warningTint, icon: "!" },
+  information: { color: PALETTE.accent, primaryBg: PALETTE.accent, primaryBgHover: PALETTE.accentHover, tint: PALETTE.accentTint, icon: "i" },
+  confirmation: { color: PALETTE.accent, primaryBg: PALETTE.accent, primaryBgHover: PALETTE.accentHover, tint: PALETTE.accentTint, icon: "?" }
+};
+function ConfirmModal({ options, onConfirm, onCancel, onChoose }) {
+  const variant = options.variant || "confirmation";
+  const styles = VARIANT_STYLES[variant] || VARIANT_STYLES.confirmation;
+  const confirmRef = useRef(null);
+  const hasChoices = Array.isArray(options.choices) && options.choices.length > 0;
+  useEffect3(() => {
+    if (confirmRef.current) confirmRef.current.focus();
+  }, []);
+  const renderBody = (body) => {
+    if (body == null) return null;
+    if (typeof body !== "string") return body;
+    return body.split("\n").map((line, i) => /* @__PURE__ */ jsxs2(React.Fragment, { children: [
+      line,
+      i < body.split("\n").length - 1 && /* @__PURE__ */ jsx2("br", {})
+    ] }, i));
+  };
+  const SPECTRUM_FONT = "adobe-clean, 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, 'Trebuchet MS', 'Lucida Grande', sans-serif";
+  return /* @__PURE__ */ jsx2(
+    "div",
+    {
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-labelledby": "confirm-title",
+      style: {
+        position: "fixed",
+        inset: 0,
+        zIndex: 1e5,
+        background: PALETTE.overlay,
+        backdropFilter: "blur(2px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        fontFamily: SPECTRUM_FONT,
+        animation: "sm-fade-in 120ms ease-out"
+      },
+      onClick: (e) => {
+        if (e.target === e.currentTarget) onCancel();
+      },
+      children: /* @__PURE__ */ jsxs2(
+        "div",
+        {
+          style: {
+            background: PALETTE.surface,
+            borderRadius: RADIUS.xl,
+            boxShadow: SHADOW.modal,
+            width: "100%",
+            maxWidth: 520,
+            maxHeight: "calc(100vh - 32px)",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            animation: "sm-pop-in 160ms cubic-bezier(0.16, 1, 0.3, 1)"
+          },
+          children: [
+            /* @__PURE__ */ jsxs2(
+              "div",
+              {
+                style: {
+                  padding: "20px 24px 12px",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 14
+                },
+                children: [
+                  /* @__PURE__ */ jsx2(
+                    "div",
+                    {
+                      "aria-hidden": "true",
+                      style: {
+                        flex: "0 0 auto",
+                        width: 36,
+                        height: 36,
+                        borderRadius: RADIUS.pill,
+                        background: styles.tint,
+                        color: styles.color,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 18,
+                        fontWeight: 700,
+                        lineHeight: 1,
+                        fontFamily: SPECTRUM_FONT
+                      },
+                      children: styles.icon
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs2("div", { style: { flex: 1, minWidth: 0 }, children: [
+                    /* @__PURE__ */ jsx2(
+                      "div",
+                      {
+                        id: "confirm-title",
+                        style: {
+                          fontFamily: SPECTRUM_FONT,
+                          fontSize: 17,
+                          fontWeight: 700,
+                          lineHeight: 1.3,
+                          letterSpacing: "-0.005em",
+                          color: PALETTE.textStrong
+                        },
+                        children: options.title || "Are you sure?"
+                      }
+                    ),
+                    options.body != null && /* @__PURE__ */ jsx2(
+                      "div",
+                      {
+                        style: {
+                          marginTop: 6,
+                          fontFamily: SPECTRUM_FONT,
+                          color: PALETTE.textSoft,
+                          fontSize: 13,
+                          lineHeight: 1.55,
+                          maxHeight: "40vh",
+                          overflowY: "auto"
+                        },
+                        children: renderBody(options.body)
+                      }
+                    )
+                  ] })
+                ]
+              }
+            ),
+            hasChoices ? /* @__PURE__ */ jsxs2(
+              "div",
+              {
+                style: {
+                  padding: "4px 16px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8
+                },
+                children: [
+                  options.choices.map((c, i) => {
+                    var _a;
+                    const cStyles = VARIANT_STYLES[c.variant] || VARIANT_STYLES.confirmation;
+                    const isPrimary = i === 0;
+                    return /* @__PURE__ */ jsxs2(
+                      "button",
+                      {
+                        type: "button",
+                        ref: isPrimary ? confirmRef : null,
+                        onClick: () => onChoose(c.value),
+                        style: {
+                          textAlign: "left",
+                          padding: "10px 14px",
+                          borderRadius: RADIUS.lg,
+                          border: isPrimary ? `1px solid ${cStyles.primaryBg}` : `1px solid ${PALETTE.borderStrong}`,
+                          background: isPrimary ? cStyles.primaryBg : PALETTE.surface,
+                          color: isPrimary ? PALETTE.textInverse : PALETTE.textStrong,
+                          fontFamily: SPECTRUM_FONT,
+                          fontSize: 14,
+                          fontWeight: 600,
+                          lineHeight: 1.35,
+                          cursor: "pointer",
+                          transition: "background 120ms ease, border-color 120ms ease",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 2
+                        },
+                        onMouseOver: (e) => {
+                          e.currentTarget.style.background = isPrimary ? cStyles.primaryBgHover : PALETTE.surfaceMuted;
+                          if (isPrimary) e.currentTarget.style.borderColor = cStyles.primaryBgHover;
+                        },
+                        onMouseOut: (e) => {
+                          e.currentTarget.style.background = isPrimary ? cStyles.primaryBg : PALETTE.surface;
+                          if (isPrimary) e.currentTarget.style.borderColor = cStyles.primaryBg;
+                        },
+                        children: [
+                          /* @__PURE__ */ jsx2("span", { children: c.label }),
+                          c.description && /* @__PURE__ */ jsx2(
+                            "span",
+                            {
+                              style: {
+                                fontSize: 12,
+                                fontWeight: 400,
+                                opacity: isPrimary ? 0.9 : 0.7
+                              },
+                              children: c.description
+                            }
+                          )
+                        ]
+                      },
+                      (_a = c.value) != null ? _a : i
+                    );
+                  }),
+                  /* @__PURE__ */ jsx2(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: onCancel,
+                      style: {
+                        marginTop: 4,
+                        padding: "8px 14px",
+                        borderRadius: RADIUS.lg,
+                        border: "1px solid transparent",
+                        background: "transparent",
+                        color: PALETTE.textMuted,
+                        fontFamily: SPECTRUM_FONT,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        lineHeight: 1.3,
+                        cursor: "pointer"
+                      },
+                      onMouseOver: (e) => {
+                        e.currentTarget.style.background = PALETTE.surfaceMuted;
+                      },
+                      onMouseOut: (e) => {
+                        e.currentTarget.style.background = "transparent";
+                      },
+                      children: options.cancelLabel || "Cancel"
+                    }
+                  )
+                ]
+              }
+            ) : /* @__PURE__ */ jsxs2(
+              "div",
+              {
+                style: {
+                  padding: "12px 16px",
+                  background: PALETTE.surfacePanel,
+                  borderTop: `1px solid ${PALETTE.border}`,
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 10
+                },
+                children: [
+                  /* @__PURE__ */ jsx2(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: onCancel,
+                      style: {
+                        padding: "8px 16px",
+                        minHeight: 36,
+                        borderRadius: RADIUS.md,
+                        border: `1px solid ${PALETTE.borderStrong}`,
+                        background: PALETTE.surface,
+                        color: PALETTE.textStrong,
+                        fontFamily: SPECTRUM_FONT,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        lineHeight: 1.3,
+                        cursor: "pointer",
+                        transition: "background 120ms ease"
+                      },
+                      onMouseOver: (e) => {
+                        e.currentTarget.style.background = PALETTE.surfaceMuted;
+                      },
+                      onMouseOut: (e) => {
+                        e.currentTarget.style.background = PALETTE.surface;
+                      },
+                      children: options.cancelLabel || "Cancel"
+                    }
+                  ),
+                  /* @__PURE__ */ jsx2(
+                    "button",
+                    {
+                      type: "button",
+                      ref: confirmRef,
+                      onClick: onConfirm,
+                      style: {
+                        padding: "8px 16px",
+                        minHeight: 36,
+                        borderRadius: RADIUS.md,
+                        border: `1px solid ${styles.primaryBg}`,
+                        background: styles.primaryBg,
+                        color: PALETTE.textInverse,
+                        fontFamily: SPECTRUM_FONT,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        lineHeight: 1.3,
+                        cursor: "pointer",
+                        transition: "background 120ms ease"
+                      },
+                      onMouseOver: (e) => {
+                        e.currentTarget.style.background = styles.primaryBgHover;
+                        e.currentTarget.style.borderColor = styles.primaryBgHover;
+                      },
+                      onMouseOut: (e) => {
+                        e.currentTarget.style.background = styles.primaryBg;
+                        e.currentTarget.style.borderColor = styles.primaryBg;
+                      },
+                      children: options.confirmLabel || "Confirm"
+                    }
+                  )
+                ]
+              }
+            )
+          ]
+        }
+      )
+    }
+  );
+}
+
+// web/src/components/SystemConfigSchemaEditor.js
+import { useEffect as useEffect4, useMemo as useMemo2, useState as useState4 } from "react";
+import {
+  View,
+  Flex,
+  Heading,
+  Text,
+  Button,
+  ActionButton,
+  TextField,
+  Picker,
+  Item,
+  Switch,
+  Checkbox,
+  Divider,
+  Well,
+  ProgressCircle
+} from "@adobe/react-spectrum";
+import { Fragment, jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
+var ID_RE = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+function blankField() {
+  return {
+    id: "",
+    label: "",
+    type: "text",
+    default: "",
+    showIn: ["default"],
+    sensitive: false,
+    options: []
+  };
+}
+function blankGroup() {
+  return { id: "", label: "", fields: [] };
+}
+function blankSection() {
+  return { id: "", label: "", groups: [] };
+}
+function cloneSchema(schema) {
+  return JSON.parse(JSON.stringify(schema || emptySchema()));
+}
+function validateLocal(schema) {
+  var _a, _b, _c;
+  if (!Array.isArray(schema.sections)) return "sections must be an array";
+  const seenSection = /* @__PURE__ */ new Set();
+  for (const s of schema.sections) {
+    if (!ID_RE.test(s.id || "")) return `Section id "${s.id}" is invalid (start with letter, [a-zA-Z0-9_])`;
+    if (seenSection.has(s.id)) return `Duplicate section id "${s.id}"`;
+    seenSection.add(s.id);
+    if (!((_a = s.label) == null ? void 0 : _a.trim())) return `Section ${s.id}: label required`;
+    const seenGroup = /* @__PURE__ */ new Set();
+    for (const g of s.groups || []) {
+      if (!ID_RE.test(g.id || "")) return `${s.id}: group id "${g.id}" is invalid`;
+      if (seenGroup.has(g.id)) return `${s.id}: duplicate group id "${g.id}"`;
+      seenGroup.add(g.id);
+      if (!((_b = g.label) == null ? void 0 : _b.trim())) return `${s.id}.${g.id}: label required`;
+      const seenField = /* @__PURE__ */ new Set();
+      for (const f of g.fields || []) {
+        if (!ID_RE.test(f.id || "")) return `${s.id}.${g.id}: field id "${f.id}" is invalid`;
+        if (seenField.has(f.id)) return `${s.id}.${g.id}: duplicate field id "${f.id}"`;
+        seenField.add(f.id);
+        if (!((_c = f.label) == null ? void 0 : _c.trim())) return `${s.id}.${g.id}.${f.id}: label required`;
+        if (!FIELD_TYPES.includes(f.type)) return `${s.id}.${g.id}.${f.id}: unknown type "${f.type}"`;
+        if (!Array.isArray(f.showIn) || f.showIn.length === 0) {
+          return `${s.id}.${g.id}.${f.id}: pick at least one scope in showIn`;
+        }
+        if (f.type === "select" && (!Array.isArray(f.options) || f.options.length === 0)) {
+          return `${s.id}.${g.id}.${f.id}: select fields need at least one option`;
+        }
+      }
+    }
+  }
+  return null;
+}
+function FieldEditor({ field, onChange, onRemove }) {
+  const update = (patch) => onChange({ ...field, ...patch });
+  const addOption = () => {
+    update({ options: [...field.options || [], { value: "", label: "" }] });
+  };
+  const updateOption = (i, patch) => {
+    const next = [...field.options || []];
+    next[i] = { ...next[i], ...patch };
+    update({ options: next });
+  };
+  const removeOption = (i) => {
+    const next = [...field.options || []];
+    next.splice(i, 1);
+    update({ options: next });
+  };
+  return /* @__PURE__ */ jsxs3("div", { style: {
+    background: PALETTE.surfaceSubtle,
+    border: `1px solid ${PALETTE.border}`,
+    borderRadius: RADIUS.md,
+    padding: 14,
+    marginBottom: 10
+  }, children: [
+    /* @__PURE__ */ jsxs3(Flex, { gap: "size-150", wrap: true, alignItems: "end", children: [
+      /* @__PURE__ */ jsx3(TextField, { label: "Field ID", value: field.id, onChange: (v) => update({ id: v }), width: "size-2400" }),
+      /* @__PURE__ */ jsx3(TextField, { label: "Label", value: field.label, onChange: (v) => update({ label: v }), width: "size-3000" }),
+      /* @__PURE__ */ jsx3(Picker, { label: "Type", selectedKey: field.type, onSelectionChange: (k) => update({ type: k }), width: "size-2000", children: FIELD_TYPES.map((t) => /* @__PURE__ */ jsx3(Item, { children: t }, t)) }),
+      /* @__PURE__ */ jsx3(
+        TextField,
+        {
+          label: "Default",
+          value: field.default == null ? "" : String(field.default),
+          onChange: (v) => update({ default: v }),
+          width: "size-2400"
+        }
+      ),
+      /* @__PURE__ */ jsx3(ActionButton, { onPress: onRemove, children: "Remove field" })
+    ] }),
+    /* @__PURE__ */ jsxs3(Flex, { gap: "size-200", marginTop: "size-150", wrap: true, alignItems: "center", children: [
+      /* @__PURE__ */ jsx3(Text, { children: "Visible in:" }),
+      SCOPES.map((scope) => /* @__PURE__ */ jsx3(
+        Checkbox,
+        {
+          isSelected: (field.showIn || []).includes(scope),
+          onChange: (checked) => {
+            const set = new Set(field.showIn || []);
+            if (checked) set.add(scope);
+            else set.delete(scope);
+            update({ showIn: Array.from(set) });
+          },
+          children: scope
+        },
+        scope
+      )),
+      /* @__PURE__ */ jsx3(Switch, { isSelected: !!field.sensitive, onChange: (v) => update({ sensitive: v }), children: "Sensitive (encrypt at rest)" })
+    ] }),
+    field.type === "select" && /* @__PURE__ */ jsxs3(View, { marginTop: "size-150", children: [
+      /* @__PURE__ */ jsx3(Text, { children: "Options" }),
+      (field.options || []).map((opt, i) => /* @__PURE__ */ jsxs3(Flex, { gap: "size-100", marginTop: "size-75", alignItems: "end", children: [
+        /* @__PURE__ */ jsx3(TextField, { label: "Value", value: opt.value, onChange: (v) => updateOption(i, { value: v }), width: "size-2400" }),
+        /* @__PURE__ */ jsx3(TextField, { label: "Label", value: opt.label, onChange: (v) => updateOption(i, { label: v }), width: "size-3000" }),
+        /* @__PURE__ */ jsx3(ActionButton, { onPress: () => removeOption(i), children: "Remove" })
+      ] }, i)),
+      /* @__PURE__ */ jsx3(Button, { variant: "secondary", marginTop: "size-100", onPress: addOption, children: "+ Add option" })
+    ] })
+  ] });
+}
+function GroupEditor({ group, onChange, onRemove }) {
+  const update = (patch) => onChange({ ...group, ...patch });
+  const addField = () => update({ fields: [...group.fields || [], blankField()] });
+  const updateField = (i, next) => {
+    const fields = [...group.fields || []];
+    fields[i] = next;
+    update({ fields });
+  };
+  const removeField = (i) => {
+    const fields = [...group.fields || []];
+    fields.splice(i, 1);
+    update({ fields });
+  };
+  return /* @__PURE__ */ jsxs3("div", { style: {
+    background: PALETTE.surface,
+    border: `1px solid ${PALETTE.border}`,
+    borderRadius: RADIUS.lg,
+    boxShadow: SHADOW.xs,
+    padding: 20,
+    marginBottom: 16
+  }, children: [
+    /* @__PURE__ */ jsxs3(Flex, { gap: "size-200", alignItems: "end", marginBottom: "size-150", wrap: true, children: [
+      /* @__PURE__ */ jsx3(TextField, { label: "Group ID", value: group.id, onChange: (v) => update({ id: v }), width: "size-2400" }),
+      /* @__PURE__ */ jsx3(TextField, { label: "Group Label", value: group.label, onChange: (v) => update({ label: v }), width: "size-3600" }),
+      /* @__PURE__ */ jsx3(ActionButton, { onPress: onRemove, children: "Remove group" })
+    ] }),
+    /* @__PURE__ */ jsx3(Divider, { size: "S", marginBottom: "size-150" }),
+    (group.fields || []).map((f, i) => /* @__PURE__ */ jsx3(
+      FieldEditor,
+      {
+        field: f,
+        onChange: (next) => updateField(i, next),
+        onRemove: () => removeField(i)
+      },
+      i
+    )),
+    /* @__PURE__ */ jsx3(Button, { variant: "secondary", onPress: addField, children: "+ Add field" })
+  ] });
+}
+function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, palette }) {
+  const [draft, setDraft] = useState4(() => cloneSchema(schema));
+  const [activeSectionIdx, setActiveSectionIdx] = useState4(0);
+  const [localError, setLocalError] = useState4(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  useEffect4(() => {
+    setDraft(cloneSchema(schema));
+  }, [schema]);
+  const activeSection = draft.sections[activeSectionIdx];
+  const updateSection = (idx, patch) => {
+    setDraft((prev) => {
+      const next = cloneSchema(prev);
+      next.sections[idx] = { ...next.sections[idx], ...patch };
+      return next;
+    });
+  };
+  const addSection = () => {
+    setDraft((prev) => {
+      const next = cloneSchema(prev);
+      next.sections.push(blankSection());
+      return next;
+    });
+    setActiveSectionIdx(draft.sections.length);
+  };
+  const removeSection = async (idx) => {
+    var _a, _b;
+    const label = ((_a = draft.sections[idx]) == null ? void 0 : _a.label) || ((_b = draft.sections[idx]) == null ? void 0 : _b.id) || `section ${idx + 1}`;
+    const ok = await confirm({
+      title: "Remove section?",
+      body: `"${label}" and all of its groups/fields will be removed from the schema. Values already stored under those field paths will remain in the database.`,
+      confirmLabel: "Remove",
+      variant: "destructive"
+    });
+    if (!ok) return;
+    setDraft((prev) => {
+      const next = cloneSchema(prev);
+      next.sections.splice(idx, 1);
+      return next;
+    });
+    setActiveSectionIdx(0);
+  };
+  const addGroup = () => {
+    updateSection(activeSectionIdx, { groups: [...activeSection.groups || [], blankGroup()] });
+  };
+  const updateGroup = (gi, next) => {
+    const groups = [...activeSection.groups || []];
+    groups[gi] = next;
+    updateSection(activeSectionIdx, { groups });
+  };
+  const removeGroup = (gi) => {
+    const groups = [...activeSection.groups || []];
+    groups.splice(gi, 1);
+    updateSection(activeSectionIdx, { groups });
+  };
+  const handleSave = async () => {
+    const localMsg = validateLocal(draft);
+    if (localMsg) {
+      setLocalError(localMsg);
+      return;
+    }
+    setLocalError(null);
+    await onSave(draft);
+  };
+  const combinedError = localError || error;
+  const displayedSections = useMemo2(() => draft.sections, [draft.sections]);
+  const P = palette || PALETTE;
+  const card = {
+    background: P.surface,
+    border: `1px solid ${P.border}`,
+    borderRadius: RADIUS.lg,
+    boxShadow: SHADOW.xs
+  };
+  return /* @__PURE__ */ jsxs3(View, { children: [
+    confirmDialog,
+    combinedError && /* @__PURE__ */ jsx3(Well, { marginBottom: "size-200", UNSAFE_style: { borderColor: P.danger }, children: /* @__PURE__ */ jsx3(Text, { UNSAFE_style: { color: P.danger }, children: combinedError }) }),
+    /* @__PURE__ */ jsx3(
+      "div",
+      {
+        style: {
+          position: "sticky",
+          top: "calc(64px + var(--sc-hero-h, 160px))",
+          marginBottom: 16,
+          padding: "12px 20px",
+          background: P.surface,
+          border: `1px solid ${P.border}`,
+          borderRadius: RADIUS.xl,
+          boxShadow: SHADOW.floating,
+          zIndex: 10
+        },
+        children: /* @__PURE__ */ jsxs3(Flex, { gap: "size-100", justifyContent: "space-between", alignItems: "center", children: [
+          /* @__PURE__ */ jsxs3("div", { style: { fontSize: 12, color: P.textMuted }, children: [
+            displayedSections.length,
+            " section",
+            displayedSections.length === 1 ? "" : "s",
+            " \xB7",
+            " ",
+            displayedSections.reduce((n, s) => n + (s.groups || []).length, 0),
+            " groups \xB7",
+            " ",
+            displayedSections.reduce((n, s) => n + (s.groups || []).reduce((m, g) => m + (g.fields || []).length, 0), 0),
+            " fields"
+          ] }),
+          /* @__PURE__ */ jsxs3(Flex, { gap: "size-100", children: [
+            /* @__PURE__ */ jsx3(Button, { variant: "secondary", onPress: onCancel, isDisabled: saving, children: "Cancel" }),
+            /* @__PURE__ */ jsx3(Button, { variant: "cta", onPress: handleSave, isDisabled: saving, children: saving ? "Saving\u2026" : "Save schema" })
+          ] })
+        ] })
+      }
+    ),
+    /* @__PURE__ */ jsxs3("div", { style: { display: "flex", gap: 24, alignItems: "flex-start" }, children: [
+      /* @__PURE__ */ jsxs3(
+        "aside",
+        {
+          role: "tablist",
+          "aria-label": "Sections",
+          style: {
+            width: 260,
+            flexShrink: 0,
+            background: P.surfaceMuted,
+            border: `1px solid ${P.border}`,
+            borderRadius: RADIUS.xxl,
+            boxShadow: SHADOW.inset,
+            padding: 6,
+            position: "sticky",
+            // Sit below AppSectionNav (64) + hero card (measured) + save bar (64) + gap
+            top: "calc(64px + var(--sc-hero-h, 160px) + 80px)",
+            alignSelf: "flex-start",
+            maxHeight: "calc(100vh - 64px - var(--sc-hero-h, 160px) - 96px)",
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4
+          },
+          children: [
+            /* @__PURE__ */ jsx3("div", { style: {
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0.8,
+              textTransform: "uppercase",
+              color: P.textMuted,
+              padding: "6px 14px 4px"
+            }, children: "Sections" }),
+            displayedSections.map((s, idx) => {
+              const active = idx === activeSectionIdx;
+              return /* @__PURE__ */ jsxs3("div", { style: { display: "flex", alignItems: "center", gap: 4 }, children: [
+                /* @__PURE__ */ jsx3(
+                  "button",
+                  {
+                    type: "button",
+                    role: "tab",
+                    "aria-selected": active,
+                    onClick: () => setActiveSectionIdx(idx),
+                    style: {
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "10px 14px",
+                      border: 0,
+                      borderRadius: RADIUS.pill,
+                      background: active ? P.surface : "transparent",
+                      cursor: active ? "default" : "pointer",
+                      font: "inherit",
+                      color: active ? P.accent : PALETTE.neutralText,
+                      fontWeight: active ? 700 : 600,
+                      textAlign: "left",
+                      fontSize: 13,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      boxShadow: active ? SHADOW.pill : "none",
+                      transition: "background 140ms ease, color 140ms ease, box-shadow 140ms ease"
+                    },
+                    onMouseOver: (e) => {
+                      if (!active) {
+                        e.currentTarget.style.background = PALETTE.surface;
+                        e.currentTarget.style.color = PALETTE.text;
+                      }
+                    },
+                    onMouseOut: (e) => {
+                      if (!active) {
+                        e.currentTarget.style.background = "transparent";
+                        e.currentTarget.style.color = PALETTE.neutralText;
+                      }
+                    },
+                    children: s.label || s.id || `(section ${idx + 1})`
+                  }
+                ),
+                /* @__PURE__ */ jsx3(ActionButton, { isQuiet: true, onPress: () => removeSection(idx), "aria-label": "Remove", children: "\u2715" })
+              ] }, idx);
+            }),
+            /* @__PURE__ */ jsx3("div", { style: { padding: "6px 6px 4px" }, children: /* @__PURE__ */ jsx3(Button, { variant: "secondary", onPress: addSection, UNSAFE_style: { width: "100%", borderRadius: RADIUS.pill }, children: "+ Add section" }) })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsx3("div", { style: { flex: 1, minWidth: 0 }, children: !activeSection ? /* @__PURE__ */ jsxs3("div", { style: { ...card, padding: 40, textAlign: "center" }, children: [
+        /* @__PURE__ */ jsx3(Heading, { level: 3, marginTop: 0, children: "No section selected" }),
+        /* @__PURE__ */ jsx3(Text, { UNSAFE_style: { color: P.textMuted }, children: "Add a section on the left to begin building your configuration schema." })
+      ] }) : /* @__PURE__ */ jsxs3(Fragment, { children: [
+        /* @__PURE__ */ jsxs3("div", { style: { ...card, padding: 20, marginBottom: 16 }, children: [
+          /* @__PURE__ */ jsx3("div", { style: {
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 0.8,
+            textTransform: "uppercase",
+            color: P.textMuted,
+            marginBottom: 12
+          }, children: "Section properties" }),
+          /* @__PURE__ */ jsxs3(Flex, { gap: "size-200", alignItems: "end", wrap: true, children: [
+            /* @__PURE__ */ jsx3(
+              TextField,
+              {
+                label: "Section ID",
+                value: activeSection.id,
+                onChange: (v) => updateSection(activeSectionIdx, { id: v }),
+                width: "size-2400"
+              }
+            ),
+            /* @__PURE__ */ jsx3(
+              TextField,
+              {
+                label: "Section Label",
+                value: activeSection.label,
+                onChange: (v) => updateSection(activeSectionIdx, { label: v }),
+                width: "size-3600"
+              }
+            )
+          ] })
+        ] }),
+        (activeSection.groups || []).map((g, gi) => /* @__PURE__ */ jsx3(
+          GroupEditor,
+          {
+            group: g,
+            onChange: (next) => updateGroup(gi, next),
+            onRemove: () => removeGroup(gi)
+          },
+          gi
+        )),
+        /* @__PURE__ */ jsx3(Button, { variant: "secondary", onPress: addGroup, children: "+ Add group" })
+      ] }) })
+    ] })
+  ] });
+}
+
+// web/src/components/SystemConfig.js
+import { Fragment as Fragment2, jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
+var APP_NAV_OFFSET = 64;
+var HERO_HEIGHT = 160;
+var SAVE_BAR_HEIGHT = 64;
+var HERO_VAR = `var(--sc-hero-h, ${HERO_HEIGHT}px)`;
+function buildScopeTreeForPicker(scopeTree) {
+  const def = { key: "default::0", label: "Default Config", scope: "default", scopeId: "0" };
+  const websites = [];
+  const all = [def];
+  const groupsById = new Map((scopeTree.storeGroups || []).map((g) => [String(g.id), g]));
+  for (const w of scopeTree.websites) {
+    const websiteOption = {
+      key: `websites::${w.id}`,
+      label: w.name || w.code || `Website ${w.id}`,
+      scope: "websites",
+      scopeId: String(w.id)
+    };
+    all.push(websiteOption);
+    const storesForWebsite = (scopeTree.stores || []).filter(
+      (s) => String(s.website_id) === String(w.id)
+    );
+    storesForWebsite.sort((a, b) => {
+      var _a, _b;
+      const ga = ((_a = groupsById.get(String(a.store_group_id))) == null ? void 0 : _a.name) || "";
+      const gb = ((_b = groupsById.get(String(b.store_group_id))) == null ? void 0 : _b.name) || "";
+      if (ga !== gb) return ga.localeCompare(gb);
+      return (a.name || "").localeCompare(b.name || "");
+    });
+    const items = storesForWebsite.map((s) => {
+      var _a;
+      const groupName = ((_a = groupsById.get(String(s.store_group_id))) == null ? void 0 : _a.name) || "";
+      const label = groupName ? `${groupName} / ${s.name}` : s.name;
+      const option = { key: `stores::${s.id}`, label, scope: "stores", scopeId: String(s.id) };
+      all.push(option);
+      return option;
+    });
+    websites.push({
+      websiteId: String(w.id),
+      websiteName: websiteOption.label,
+      websiteOption,
+      items
+    });
+  }
+  return { all, default: def, websites };
+}
+function Pill({ children, tone = "neutral" }) {
+  const tones = {
+    neutral: { bg: PALETTE.neutralSoft, fg: PALETTE.neutralText },
+    accent: { bg: PALETTE.accentSoft, fg: PALETTE.accent },
+    warning: { bg: PALETTE.warningSoft, fg: PALETTE.warning },
+    success: { bg: PALETTE.successSoft, fg: PALETTE.success },
+    danger: { bg: PALETTE.dangerSoft, fg: PALETTE.danger }
+  };
+  const t = tones[tone] || tones.neutral;
+  return /* @__PURE__ */ jsx4(
+    "span",
+    {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 8px",
+        borderRadius: RADIUS.pill,
+        background: t.bg,
+        color: t.fg,
+        fontSize: 11,
+        fontWeight: 600,
+        lineHeight: "16px",
+        letterSpacing: 0.2,
+        whiteSpace: "nowrap"
+      },
+      children
+    }
+  );
+}
+function Card({ children, padded = true, style = {} }) {
+  return /* @__PURE__ */ jsx4(
+    "div",
+    {
+      style: {
+        background: PALETTE.surface,
+        border: `1px solid ${PALETTE.border}`,
+        borderRadius: RADIUS.lg,
+        boxShadow: SHADOW.xs,
+        ...padded ? { padding: 20 } : {},
+        ...style
+      },
+      children
+    }
+  );
+}
+function FieldControl({ field, value, disabled, sensitivePlaceholder, onChange }) {
+  const isMasked = value === sensitivePlaceholder;
+  switch (field.type) {
+    case "textarea":
+      return /* @__PURE__ */ jsx4(View2, { width: "size-4600", children: /* @__PURE__ */ jsx4(
+        TextArea,
+        {
+          "aria-label": field.label,
+          value: value != null ? value : "",
+          isDisabled: disabled,
+          onChange,
+          width: "100%",
+          UNSAFE_className: "sm-textarea"
+        }
+      ) });
+    case "password":
+      return /* @__PURE__ */ jsx4(
+        TextField2,
+        {
+          "aria-label": field.label,
+          type: "password",
+          value: isMasked ? "" : value != null ? value : "",
+          isDisabled: disabled,
+          onChange,
+          placeholder: isMasked ? "\u2022\u2022\u2022\u2022\u2022 (encrypted, leave blank to keep)" : "",
+          width: "size-4600"
+        }
+      );
+    case "number":
+      return /* @__PURE__ */ jsx4(
+        NumberField,
+        {
+          "aria-label": field.label,
+          value: typeof value === "number" ? value : Number(value) || 0,
+          isDisabled: disabled,
+          onChange,
+          width: "size-3000"
+        }
+      );
+    case "boolean":
+      return /* @__PURE__ */ jsx4(Switch2, { isSelected: !!value, isDisabled: disabled, onChange, children: value ? "Yes" : "No" });
+    case "select":
+      return /* @__PURE__ */ jsx4(
+        Picker2,
+        {
+          "aria-label": field.label,
+          selectedKey: value != null ? value : field.default,
+          isDisabled: disabled,
+          onSelectionChange: onChange,
+          width: "size-3600",
+          children: (field.options || []).map((opt) => /* @__PURE__ */ jsx4(Item2, { children: opt.label }, opt.value))
+        }
+      );
+    case "text":
+    default:
+      return /* @__PURE__ */ jsx4(
+        TextField2,
+        {
+          "aria-label": field.label,
+          value: value != null ? value : "",
+          isDisabled: disabled,
+          onChange,
+          width: "size-4600"
+        }
+      );
+  }
+}
+function FieldRow({
+  field,
+  path,
+  scope,
+  displayValue,
+  origin,
+  inherited,
+  onFieldChange,
+  onUseDefaultChange,
+  sensitivePlaceholder
+}) {
+  const allowed = isFieldVisibleAtScope(field, scope.scope);
+  const showUseDefault = scope.scope !== "default" && allowed;
+  const editorDisabled = !allowed || showUseDefault && inherited;
+  const isTextarea = field.type === "textarea";
+  const originLabel = origin ? origin.scope === "default" ? "inherited from Default Config" : `set at ${origin.scope}:${origin.scopeId}` : "unset";
+  return /* @__PURE__ */ jsxs4(
+    "div",
+    {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "220px 1fr auto",
+        gap: 16,
+        alignItems: isTextarea ? "start" : "center",
+        padding: "14px 0",
+        borderBottom: `1px solid ${PALETTE.border}`
+      },
+      children: [
+        /* @__PURE__ */ jsxs4("div", { style: { paddingTop: isTextarea ? 6 : 0 }, children: [
+          /* @__PURE__ */ jsxs4("div", { style: {
+            fontSize: 13,
+            fontWeight: 600,
+            color: PALETTE.text,
+            display: "flex",
+            alignItems: "center",
+            gap: 6
+          }, children: [
+            field.label,
+            field.sensitive && /* @__PURE__ */ jsxs4(TooltipTrigger, { children: [
+              /* @__PURE__ */ jsx4("span", { style: { display: "inline-flex", color: PALETTE.textMuted }, children: /* @__PURE__ */ jsx4(LockClosed, { size: "XS" }) }),
+              /* @__PURE__ */ jsx4(Tooltip, { children: "Encrypted at rest" })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxs4("div", { style: { marginTop: 4, display: "flex", gap: 6, flexWrap: "wrap" }, children: [
+            !allowed && /* @__PURE__ */ jsx4(Pill, { tone: "warning", children: "Not configurable here" }),
+            allowed && scope.scope !== "default" && /* @__PURE__ */ jsx4(Pill, { tone: inherited ? "neutral" : "accent", children: inherited ? originLabel : "overridden" })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx4("div", { children: /* @__PURE__ */ jsx4(
+          FieldControl,
+          {
+            field,
+            value: displayValue,
+            disabled: editorDisabled,
+            sensitivePlaceholder,
+            onChange: (v) => onFieldChange(path, v)
+          }
+        ) }),
+        /* @__PURE__ */ jsx4("div", { children: showUseDefault && /* @__PURE__ */ jsx4(
+          Checkbox2,
+          {
+            isSelected: inherited,
+            onChange: (checked) => onUseDefaultChange(path, checked),
+            children: "Use Default"
+          }
+        ) })
+      ]
+    }
+  );
+}
+function GroupCard({
+  group,
+  sectionId,
+  scope,
+  collapsed,
+  onToggle,
+  getDisplayValue,
+  getOrigin,
+  isInheritedAtScope,
+  setFieldValue,
+  setUseDefault,
+  sensitivePlaceholder
+}) {
+  return /* @__PURE__ */ jsxs4(Card, { padded: false, style: { marginBottom: 16 }, children: [
+    /* @__PURE__ */ jsx4(
+      "button",
+      {
+        type: "button",
+        onClick: onToggle,
+        "aria-expanded": !collapsed,
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+          padding: "14px 20px",
+          background: "transparent",
+          border: 0,
+          borderBottom: collapsed ? 0 : `1px solid ${PALETTE.border}`,
+          cursor: "pointer",
+          userSelect: "none",
+          font: "inherit",
+          color: "inherit",
+          textAlign: "left"
+        },
+        children: /* @__PURE__ */ jsxs4("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+          /* @__PURE__ */ jsx4("span", { style: { color: PALETTE.textMuted, display: "inline-flex" }, children: collapsed ? /* @__PURE__ */ jsx4(ChevronRight, { size: "S" }) : /* @__PURE__ */ jsx4(ChevronDown, { size: "S" }) }),
+          /* @__PURE__ */ jsx4("span", { style: { fontWeight: 700, fontSize: 15, color: PALETTE.text }, children: group.label }),
+          /* @__PURE__ */ jsxs4(Pill, { tone: "neutral", children: [
+            (group.fields || []).length,
+            " fields"
+          ] })
+        ] })
+      }
+    ),
+    !collapsed && /* @__PURE__ */ jsx4("div", { style: { padding: "4px 20px 16px" }, children: (group.fields || []).map((field) => {
+      const path = `${sectionId}/${group.id}/${field.id}`;
+      const inherited = isInheritedAtScope(path);
+      const displayValue = getDisplayValue(path, coerceDefault(field));
+      return /* @__PURE__ */ jsx4(
+        FieldRow,
+        {
+          field,
+          path,
+          scope,
+          displayValue,
+          origin: getOrigin(path),
+          inherited,
+          onFieldChange: setFieldValue,
+          onUseDefaultChange: setUseDefault,
+          sensitivePlaceholder
+        },
+        path
+      );
+    }) })
+  ] });
+}
+function Sidebar({ sections, activeSectionId, onSelect }) {
+  return /* @__PURE__ */ jsxs4(
+    "aside",
+    {
+      role: "tablist",
+      "aria-label": "Sections",
+      style: {
+        width: 260,
+        flexShrink: 0,
+        // Pill-track styling that matches the top AppSectionNav: muted grey
+        // track with inset shadow, full-rounded radius, holding individual
+        // rounded pill buttons.
+        background: PALETTE.surfaceMuted,
+        border: `1px solid ${PALETTE.border}`,
+        borderRadius: RADIUS.xxl,
+        boxShadow: SHADOW.inset,
+        padding: 6,
+        position: "sticky",
+        // Sit below the hero + save bar (which are also sticky) so the
+        // sidebar never overlaps either of them. Uses the runtime-measured
+        // hero height so the offset stays correct on viewport resize.
+        top: `calc(${APP_NAV_OFFSET}px + ${HERO_VAR} + ${SAVE_BAR_HEIGHT + 16}px)`,
+        alignSelf: "flex-start",
+        maxHeight: `calc(100vh - ${APP_NAV_OFFSET}px - ${HERO_VAR} - ${SAVE_BAR_HEIGHT + 32}px)`,
+        overflowY: "auto",
+        zIndex: 5,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4
+      },
+      children: [
+        /* @__PURE__ */ jsx4("div", { style: {
+          padding: "6px 14px 4px",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: 0.8,
+          textTransform: "uppercase",
+          color: PALETTE.textMuted
+        }, children: "Sections" }),
+        sections.map((section) => {
+          const active = section.id === activeSectionId;
+          const fieldCount = (section.groups || []).reduce((n, g) => n + (g.fields || []).length, 0);
+          return /* @__PURE__ */ jsxs4(
+            "button",
+            {
+              type: "button",
+              role: "tab",
+              "aria-selected": active,
+              onClick: () => onSelect(section.id),
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                width: "100%",
+                padding: "10px 14px",
+                border: 0,
+                borderRadius: RADIUS.pill,
+                background: active ? PALETTE.surface : "transparent",
+                cursor: active ? "default" : "pointer",
+                font: "inherit",
+                color: active ? PALETTE.accent : PALETTE.neutralText,
+                fontWeight: active ? 700 : 600,
+                fontSize: 13,
+                textAlign: "left",
+                boxShadow: active ? SHADOW.pill : "none",
+                transition: "background 140ms ease, color 140ms ease, box-shadow 140ms ease"
+              },
+              onMouseOver: (e) => {
+                if (!active) {
+                  e.currentTarget.style.background = PALETTE.surface;
+                  e.currentTarget.style.color = PALETTE.text;
+                }
+              },
+              onMouseOut: (e) => {
+                if (!active) {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = PALETTE.neutralText;
+                }
+              },
+              children: [
+                /* @__PURE__ */ jsx4("span", { style: { display: "inline-flex", opacity: active ? 1 : 0.7 }, children: /* @__PURE__ */ jsx4(Settings2, { size: "XS" }) }),
+                /* @__PURE__ */ jsx4("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: section.label }),
+                /* @__PURE__ */ jsx4(Pill, { tone: active ? "accent" : "neutral", children: fieldCount })
+              ]
+            },
+            section.id
+          );
+        })
+      ]
+    }
+  );
+}
+function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx }) {
+  var _a, _b;
+  const {
+    scope,
+    scopeTree,
+    getDisplayValue,
+    getOrigin,
+    isInheritedAtScope,
+    setFieldValue,
+    setUseDefault,
+    dirtyCount,
+    loading,
+    saving,
+    error,
+    savedAt,
+    save,
+    reset,
+    refresh,
+    SENSITIVE_PLACEHOLDER: SENSITIVE_PLACEHOLDER2
+  } = configCtx;
+  const sections = (schema == null ? void 0 : schema.sections) || [];
+  const [activeSectionId, setActiveSectionId] = useState5((_a = sections[0]) == null ? void 0 : _a.id);
+  const activeSection = useMemo3(() => {
+    if (sections.length === 0) return null;
+    return sections.find((s) => s.id === activeSectionId) || sections[0];
+  }, [sections, activeSectionId]);
+  const scopeTreeForPicker = useMemo3(() => buildScopeTreeForPicker(scopeTree), [scopeTree]);
+  const scopeKey = `${scope.scope}::${scope.scopeId}`;
+  const activeScopeLabel = ((_b = scopeTreeForPicker.all.find((o) => o.key === scopeKey)) == null ? void 0 : _b.label) || "Default Config";
+  const [collapsedGroups, setCollapsedGroups] = useState5({});
+  useEffect5(() => {
+    setCollapsedGroups({});
+  }, [activeSection == null ? void 0 : activeSection.id]);
+  const toggleGroup = (gid) => setCollapsedGroups((prev) => ({ ...prev, [gid]: !prev[gid] }));
+  const setAllGroups = (collapsed) => {
+    const next = {};
+    for (const g of (activeSection == null ? void 0 : activeSection.groups) || []) next[g.id] = collapsed;
+    setCollapsedGroups(next);
+  };
+  if (sections.length === 0) {
+    return /* @__PURE__ */ jsx4(Card, { children: /* @__PURE__ */ jsxs4("div", { style: { textAlign: "center", padding: "40px 20px" }, children: [
+      /* @__PURE__ */ jsx4("div", { style: {
+        display: "inline-flex",
+        padding: 16,
+        background: PALETTE.accentSoft,
+        borderRadius: "50%",
+        marginBottom: 12,
+        color: PALETTE.accent
+      }, children: /* @__PURE__ */ jsx4(Settings2, { size: "L" }) }),
+      /* @__PURE__ */ jsx4(Heading2, { level: 3, marginTop: 0, children: "No configuration schema yet" }),
+      /* @__PURE__ */ jsx4(Text2, { UNSAFE_style: { color: PALETTE.textMuted, maxWidth: 460, display: "inline-block" }, children: "Open the Schema Designer to define sections, groups, and fields for your sync integrations." }),
+      /* @__PURE__ */ jsx4(Flex2, { justifyContent: "center", gap: "size-150", marginTop: "size-200", children: /* @__PURE__ */ jsx4(Button2, { variant: "cta", onPress: onEditSchema, children: "Open Schema Designer" }) })
+    ] }) });
+  }
+  return /* @__PURE__ */ jsxs4(Fragment2, { children: [
+    error && /* @__PURE__ */ jsx4(Well2, { marginBottom: "size-200", UNSAFE_style: { borderColor: PALETTE.danger }, children: /* @__PURE__ */ jsx4(Text2, { UNSAFE_style: { color: PALETTE.danger }, children: error }) }),
+    /* @__PURE__ */ jsx4(
+      "div",
+      {
+        style: {
+          position: "sticky",
+          // Hero card sticks at APP_NAV_OFFSET; this save bar sits flush
+          // against the hero's bottom edge (measured at runtime via
+          // --sc-hero-h so the gap is always zero regardless of subtitle
+          // wrap).
+          top: `calc(${APP_NAV_OFFSET}px + ${HERO_VAR})`,
+          marginBottom: 16,
+          padding: "12px 20px",
+          background: PALETTE.surface,
+          border: `1px solid ${PALETTE.border}`,
+          borderRadius: RADIUS.xl,
+          boxShadow: SHADOW.floating,
+          zIndex: 10
+        },
+        children: /* @__PURE__ */ jsxs4(Flex2, { gap: "size-150", alignItems: "center", justifyContent: "space-between", children: [
+          /* @__PURE__ */ jsx4("div", { style: { fontSize: 12, color: PALETTE.textMuted }, children: dirtyCount > 0 ? /* @__PURE__ */ jsxs4("span", { style: { color: PALETTE.warning, fontWeight: 600 }, children: [
+            dirtyCount,
+            " unsaved change",
+            dirtyCount === 1 ? "" : "s"
+          ] }) : savedAt && !saving ? /* @__PURE__ */ jsxs4("span", { style: { color: PALETTE.success, fontWeight: 600 }, children: [
+            "\u2713 Saved ",
+            new Date(savedAt).toLocaleTimeString()
+          ] }) : "All changes saved" }),
+          /* @__PURE__ */ jsxs4(Flex2, { gap: "size-100", alignItems: "center", children: [
+            /* @__PURE__ */ jsx4(Button2, { variant: "secondary", onPress: refresh, isDisabled: saving || loading, children: "Reload" }),
+            /* @__PURE__ */ jsx4(Button2, { variant: "secondary", onPress: reset, isDisabled: saving || dirtyCount === 0, children: "Reset" }),
+            /* @__PURE__ */ jsx4(Button2, { variant: "cta", onPress: save, isDisabled: saving || loading || dirtyCount === 0, children: saving ? "Saving\u2026" : `Save Config${dirtyCount ? ` (${dirtyCount})` : ""}` })
+          ] })
+        ] })
+      }
+    ),
+    /* @__PURE__ */ jsxs4("div", { style: { display: "flex", gap: 24, alignItems: "flex-start" }, children: [
+      /* @__PURE__ */ jsx4(
+        Sidebar,
+        {
+          sections,
+          activeSectionId: activeSection == null ? void 0 : activeSection.id,
+          onSelect: setActiveSectionId
+        }
+      ),
+      /* @__PURE__ */ jsxs4("div", { style: { flex: 1, minWidth: 0 }, children: [
+        /* @__PURE__ */ jsxs4("div", { style: {
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 16
+        }, children: [
+          /* @__PURE__ */ jsxs4("div", { children: [
+            /* @__PURE__ */ jsx4("div", { style: { fontSize: 12, color: PALETTE.textMuted, fontWeight: 600, marginBottom: 4 }, children: activeScopeLabel }),
+            /* @__PURE__ */ jsx4(Heading2, { level: 2, marginTop: 0, marginBottom: 0, children: activeSection == null ? void 0 : activeSection.label })
+          ] }),
+          ((activeSection == null ? void 0 : activeSection.groups) || []).length > 1 && /* @__PURE__ */ jsxs4(Flex2, { gap: "size-50", children: [
+            /* @__PURE__ */ jsx4(ActionButton2, { onPress: () => setAllGroups(false), isQuiet: true, children: "Expand all" }),
+            /* @__PURE__ */ jsx4(ActionButton2, { onPress: () => setAllGroups(true), isQuiet: true, children: "Collapse all" })
+          ] })
+        ] }),
+        loading ? /* @__PURE__ */ jsx4(Card, { children: /* @__PURE__ */ jsx4(Flex2, { justifyContent: "center", marginY: "size-400", children: /* @__PURE__ */ jsx4(ProgressCircle2, { "aria-label": "Loading values", isIndeterminate: true }) }) }) : ((activeSection == null ? void 0 : activeSection.groups) || []).map((group) => /* @__PURE__ */ jsx4(
+          GroupCard,
+          {
+            group,
+            sectionId: activeSection.id,
+            scope,
+            collapsed: !!collapsedGroups[group.id],
+            onToggle: () => toggleGroup(group.id),
+            getDisplayValue,
+            getOrigin,
+            isInheritedAtScope,
+            setFieldValue,
+            setUseDefault,
+            sensitivePlaceholder: SENSITIVE_PLACEHOLDER2
+          },
+          group.id
+        )),
+        /* @__PURE__ */ jsx4("div", { style: { height: 80 } })
+      ] })
+    ] })
+  ] });
+}
+function ScopePicker({ scopeTreeForPicker, selectedKey, onChange, disabled }) {
+  const [open, setOpen] = useState5(false);
+  const wrapperRef = useRef2(null);
+  useEffect5(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  const selected = scopeTreeForPicker.all.find((o) => o.key === selectedKey);
+  const selectedLabel = (selected == null ? void 0 : selected.label) || "Default Config";
+  const select = (key) => {
+    onChange(key);
+    setOpen(false);
+  };
+  const renderItem = ({ key, label, indent = 0, isWebsite = false }) => {
+    const active = key === selectedKey;
+    return /* @__PURE__ */ jsxs4(
+      "button",
+      {
+        type: "button",
+        onClick: () => select(key),
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+          padding: `8px 12px 8px ${12 + indent * 18}px`,
+          background: active ? PALETTE.accentSoft : "transparent",
+          color: active ? PALETTE.accent : PALETTE.text,
+          fontSize: 13,
+          fontWeight: active ? 700 : isWebsite ? 600 : 500,
+          border: 0,
+          textAlign: "left",
+          cursor: "pointer",
+          font: "inherit"
+        },
+        onMouseOver: (e) => {
+          if (!active) e.currentTarget.style.background = PALETTE.surfaceMuted;
+        },
+        onMouseOut: (e) => {
+          if (!active) e.currentTarget.style.background = "transparent";
+        },
+        children: [
+          /* @__PURE__ */ jsxs4("span", { style: { display: "flex", alignItems: "center", gap: 6, fontFamily: "inherit" }, children: [
+            indent > 0 && /* @__PURE__ */ jsx4("span", { style: { color: PALETTE.textMuted }, children: "\u21B3" }),
+            /* @__PURE__ */ jsx4("span", { children: label })
+          ] }),
+          active && /* @__PURE__ */ jsx4("span", { style: { color: PALETTE.accent, fontSize: 14 }, children: "\u2713" })
+        ]
+      },
+      key
+    );
+  };
+  return /* @__PURE__ */ jsxs4("div", { ref: wrapperRef, style: { position: "relative" }, children: [
+    /* @__PURE__ */ jsxs4(
+      "button",
+      {
+        type: "button",
+        onClick: () => !disabled && setOpen((o) => !o),
+        disabled,
+        "aria-haspopup": "listbox",
+        "aria-expanded": open,
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          background: PALETTE.surface,
+          border: `1px solid ${PALETTE.border}`,
+          borderRadius: RADIUS.md,
+          padding: "6px 10px",
+          minWidth: 220,
+          fontFamily: "inherit",
+          fontSize: 13,
+          fontWeight: 600,
+          color: PALETTE.text,
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.6 : 1
+        },
+        children: [
+          /* @__PURE__ */ jsx4(Globe, { size: "XS" }),
+          /* @__PURE__ */ jsx4("span", { style: { flex: 1, textAlign: "left", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, children: selectedLabel }),
+          /* @__PURE__ */ jsx4("span", { style: { color: PALETTE.textMuted, fontSize: 11 }, children: "\u25BE" })
+        ]
+      }
+    ),
+    open && /* @__PURE__ */ jsxs4(
+      "div",
+      {
+        role: "listbox",
+        style: {
+          position: "absolute",
+          top: "100%",
+          right: 0,
+          marginTop: 4,
+          minWidth: 280,
+          maxHeight: 420,
+          overflowY: "auto",
+          background: PALETTE.surface,
+          border: `1px solid ${PALETTE.border}`,
+          borderRadius: RADIUS.lg,
+          boxShadow: SHADOW.dropdown,
+          zIndex: 100,
+          padding: 4
+        },
+        children: [
+          renderItem({ key: scopeTreeForPicker.default.key, label: scopeTreeForPicker.default.label, indent: 0 }),
+          scopeTreeForPicker.websites.map((w) => /* @__PURE__ */ jsxs4("div", { style: { marginTop: 6, paddingTop: 6, borderTop: `1px solid ${PALETTE.border}` }, children: [
+            /* @__PURE__ */ jsx4("div", { style: {
+              padding: "6px 12px 4px",
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0.8,
+              textTransform: "uppercase",
+              color: PALETTE.textMuted
+            }, children: "Website" }),
+            renderItem({ key: w.websiteOption.key, label: w.websiteOption.label, indent: 0, isWebsite: true }),
+            w.items.map((s) => renderItem({ key: s.key, label: s.label, indent: 1 }))
+          ] }, w.websiteId))
+        ]
+      }
+    )
+  ] });
+}
+function PageHeader({
+  heroRef,
+  mode,
+  setMode,
+  scopeTree,
+  scopeTreeForPicker,
+  scopeKey,
+  onScopeChange,
+  onReloadStores,
+  onOpenTools,
+  toolsOpen
+}) {
+  const isSchemaMode = mode === "schema";
+  return /* @__PURE__ */ jsxs4(
+    "div",
+    {
+      ref: heroRef,
+      style: {
+        // Hero card. Identical chrome to DataIngestion's hero — same border,
+        // radius, padding, shadow, font. Sticky so the title + scope picker
+        // stay reachable while scrolling long pages of fields.
+        position: "sticky",
+        top: APP_NAV_OFFSET,
+        zIndex: 20,
+        background: PALETTE.surface,
+        border: `1px solid ${PALETTE.border}`,
+        borderRadius: RADIUS.xl,
+        padding: "20px 24px",
+        boxShadow: SHADOW.xs,
+        display: "flex",
+        gap: 24,
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+        fontFamily: "adobe-clean, 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+      },
+      children: [
+        /* @__PURE__ */ jsxs4("div", { style: { display: "flex", gap: 16, alignItems: "flex-start", minWidth: 0 }, children: [
+          /* @__PURE__ */ jsx4("div", { style: {
+            display: "inline-flex",
+            padding: 10,
+            background: PALETTE.accentSoft,
+            color: PALETTE.accent,
+            borderRadius: RADIUS.lg,
+            flexShrink: 0
+          }, children: /* @__PURE__ */ jsx4(Settings2, { size: "S" }) }),
+          /* @__PURE__ */ jsxs4("div", { style: { minWidth: 0 }, children: [
+            /* @__PURE__ */ jsx4("div", { style: {
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.6,
+              textTransform: "uppercase",
+              color: PALETTE.textMuted,
+              marginBottom: 6
+            }, children: "Configurations / App Builder" }),
+            /* @__PURE__ */ jsx4("div", { style: { fontSize: 24, fontWeight: 700, color: PALETTE.text, lineHeight: 1.2 }, children: isSchemaMode ? "Schema Designer" : "System Configuration" }),
+            /* @__PURE__ */ jsx4("div", { style: { fontSize: 13, color: PALETTE.textMuted, marginTop: 6, maxWidth: 540 }, children: isSchemaMode ? "Define sections, groups, and fields. Renaming an id strands existing values; removing one prompts to delete its stored values." : "Manage configuration values across Default Config, websites, and store views \u2014 stored in App Builder DB." })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx4("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }, children: mode === "values" && /* @__PURE__ */ jsxs4(Fragment2, { children: [
+          /* @__PURE__ */ jsx4(
+            ScopePicker,
+            {
+              scopeTreeForPicker,
+              selectedKey: scopeKey,
+              onChange: onScopeChange,
+              disabled: scopeTree.loading
+            }
+          ),
+          /* @__PURE__ */ jsxs4(TooltipTrigger, { children: [
+            /* @__PURE__ */ jsx4(ActionButton2, { onPress: onReloadStores, isDisabled: scopeTree.loading, "aria-label": "Reload stores", children: /* @__PURE__ */ jsx4(Refresh, {}) }),
+            /* @__PURE__ */ jsx4(Tooltip, { children: "Reload websites & stores from Commerce" })
+          ] }),
+          /* @__PURE__ */ jsxs4(TooltipTrigger, { children: [
+            /* @__PURE__ */ jsx4(ActionButton2, { onPress: onOpenTools, "aria-label": "Open tools", isQuiet: !toolsOpen, children: /* @__PURE__ */ jsx4(CloudUpload, {}) }),
+            /* @__PURE__ */ jsx4(Tooltip, { children: "Legacy migration tools" })
+          ] }),
+          /* @__PURE__ */ jsxs4(TooltipTrigger, { children: [
+            /* @__PURE__ */ jsx4(ActionButton2, { onPress: () => setMode("schema"), "aria-label": "Edit schema", children: /* @__PURE__ */ jsx4(Edit, {}) }),
+            /* @__PURE__ */ jsx4(Tooltip, { children: "Edit schema" })
+          ] })
+        ] }) })
+      ]
+    }
+  );
+}
+function ToolsPanel({
+  onClose,
+  // Export / Import
+  onExport,
+  exporting,
+  onImport,
+  importing,
+  ioMsg,
+  ioProgress,
+  // { phase, done, total, label }
+  importSourceKey,
+  setImportSourceKey,
+  // Commerce sync
+  onSyncStoreMappings,
+  syncingStoreMappings,
+  syncMsg
+}) {
+  return /* @__PURE__ */ jsxs4(Card, { style: { marginBottom: 16 }, children: [
+    /* @__PURE__ */ jsxs4(Flex2, { justifyContent: "space-between", alignItems: "center", marginBottom: "size-150", children: [
+      /* @__PURE__ */ jsxs4(Flex2, { gap: "size-100", alignItems: "center", children: [
+        /* @__PURE__ */ jsx4(CloudUpload, { size: "S" }),
+        /* @__PURE__ */ jsx4(Heading2, { level: 4, margin: 0, children: "Export / Import" })
+      ] }),
+      /* @__PURE__ */ jsx4(ActionButton2, { isQuiet: true, onPress: onClose, "aria-label": "Close tools", children: "\u2715" })
+    ] }),
+    /* @__PURE__ */ jsx4(Text2, { UNSAFE_style: { color: PALETTE.textMuted, fontSize: 13, display: "block", marginBottom: 12 }, children: "Download the entire configuration bundle as JSON for backup or to copy between workspaces." }),
+    /* @__PURE__ */ jsxs4(Flex2, { gap: "size-150", alignItems: "center", wrap: true, children: [
+      /* @__PURE__ */ jsx4(Button2, { variant: "secondary", onPress: onExport, isDisabled: exporting || importing, children: exporting ? "Exporting\u2026" : "Export Configuration" }),
+      /* @__PURE__ */ jsx4(Button2, { variant: "secondary", onPress: onImport, isDisabled: importing || exporting, children: importing ? "Importing\u2026" : "Import Configuration" })
+    ] }),
+    /* @__PURE__ */ jsx4(View2, { marginTop: "size-150", UNSAFE_style: { maxWidth: 520 }, children: /* @__PURE__ */ jsx4(
+      TextField2,
+      {
+        label: "Source encryption key (only for legacy v1 dumps)",
+        type: "password",
+        value: importSourceKey,
+        onChange: setImportSourceKey,
+        isDisabled: importing,
+        width: "100%"
+      }
+    ) }),
+    ioProgress && ioProgress.phase === "running" && /* @__PURE__ */ jsx4(View2, { marginTop: "size-200", children: ioProgress.total > 0 ? /* @__PURE__ */ jsx4(
+      ProgressBar,
+      {
+        label: ioProgress.label || "Working\u2026",
+        value: ioProgress.done,
+        maxValue: ioProgress.total,
+        valueLabel: `${ioProgress.done} / ${ioProgress.total}`,
+        width: "100%"
+      }
+    ) : /* @__PURE__ */ jsx4(
+      ProgressBar,
+      {
+        label: ioProgress.label || "Working\u2026",
+        isIndeterminate: true,
+        width: "100%"
+      }
+    ) }),
+    ioMsg && /* @__PURE__ */ jsx4(
+      View2,
+      {
+        marginTop: "size-150",
+        padding: "size-150",
+        UNSAFE_style: {
+          background: PALETTE.surface,
+          border: `1px solid ${PALETTE.border}`,
+          borderRadius: RADIUS.md
+        },
+        children: /* @__PURE__ */ jsx4(Text2, { UNSAFE_style: { whiteSpace: "pre-line", fontSize: 13, fontFamily: "ui-monospace, Menlo, monospace" }, children: ioMsg })
+      }
+    ),
+    /* @__PURE__ */ jsx4(Divider2, { size: "S", marginY: "size-250" }),
+    /* @__PURE__ */ jsx4(Flex2, { justifyContent: "space-between", alignItems: "center", marginBottom: "size-100", children: /* @__PURE__ */ jsx4(Heading2, { level: 4, margin: 0, children: "Sync Store Mappings" }) }),
+    /* @__PURE__ */ jsxs4(Text2, { UNSAFE_style: { color: PALETTE.textMuted, fontSize: 13, display: "block", marginBottom: 12 }, children: [
+      "Rebuild ",
+      /* @__PURE__ */ jsx4("code", { children: "general/settings/store_mappings" }),
+      " from Commerce."
+    ] }),
+    /* @__PURE__ */ jsx4(Flex2, { gap: "size-150", alignItems: "center", wrap: true, children: /* @__PURE__ */ jsx4(
+      Button2,
+      {
+        variant: "secondary",
+        onPress: onSyncStoreMappings,
+        isDisabled: syncingStoreMappings || exporting || importing,
+        children: syncingStoreMappings ? "Syncing\u2026" : "Sync Store Mappings"
+      }
+    ) }),
+    syncMsg && /* @__PURE__ */ jsx4(
+      View2,
+      {
+        marginTop: "size-150",
+        padding: "size-150",
+        UNSAFE_style: {
+          background: PALETTE.surface,
+          border: `1px solid ${PALETTE.border}`,
+          borderRadius: RADIUS.md
+        },
+        children: /* @__PURE__ */ jsx4(Text2, { UNSAFE_style: { whiteSpace: "pre-line", fontSize: 13, fontFamily: "ui-monospace, Menlo, monospace" }, children: syncMsg })
+      }
+    )
+  ] });
+}
+function SystemConfig(props) {
+  const {
+    schema,
+    saveSchema,
+    refresh: refreshSchema,
+    loading: schemaLoading,
+    saving: schemaSaving,
+    error: schemaError
+  } = useSystemConfigSchema(props);
+  const [mode, setMode] = useState5("values");
+  const [toolsOpen, setToolsOpen] = useState5(false);
+  const [exporting, setExporting] = useState5(false);
+  const [importing, setImporting] = useState5(false);
+  const [ioMsg, setIoMsg] = useState5(null);
+  const [ioProgress, setIoProgress] = useState5({ phase: "idle", done: 0, total: 0, label: "" });
+  const [importSourceKey, setImportSourceKey] = useState5("");
+  const [syncingStoreMappings, setSyncingStoreMappings] = useState5(false);
+  const [syncMsg, setSyncMsg] = useState5(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const heroRef = useRef2(null);
+  useEffect5(() => {
+    if (!heroRef.current) return void 0;
+    const update = () => {
+      const h = heroRef.current ? heroRef.current.offsetHeight : HERO_HEIGHT;
+      document.documentElement.style.setProperty("--sc-hero-h", `${h}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(heroRef.current);
+    return () => {
+      ro.disconnect();
+    };
+  }, [mode]);
+  const configCtx = useSystemConfig(
+    props,
+    mode === "values" ? schema : { sections: [] }
+  );
+  const { scope, setScope, scopeTree, refreshScopeTree } = configCtx;
+  const scopeTreeForPicker = useMemo3(() => buildScopeTreeForPicker(scopeTree), [scopeTree]);
+  const scopeKey = `${scope.scope}::${scope.scopeId}`;
+  const onScopeChange = (key) => {
+    const opt = scopeTreeForPicker.all.find((o) => o.key === key);
+    if (!opt) return;
+    setScope({ scope: opt.scope, scopeId: opt.scopeId });
+  };
+  const onSchemaSave = async (next) => {
+    let result = await saveSchema(next);
+    if (result == null ? void 0 : result.needsConfirmation) {
+      const removed = result.removedPaths || [];
+      const ok = await confirm({
+        title: "Removing schema entries will delete stored values",
+        body: "The following field path(s) are being removed from the schema. Their values will be permanently deleted from system_config_data across every scope:\n\n  \u2022 " + removed.join("\n  \u2022 ") + "\n\nContinue?",
+        confirmLabel: "Delete & save",
+        cancelLabel: "Cancel",
+        variant: "destructive"
+      });
+      if (!ok) return;
+      result = await saveSchema(next, { confirmCascade: true });
+    }
+    if (!(result == null ? void 0 : result.ok)) return;
+    if ((result.deletedCount || 0) > 0) {
+      try {
+        await configCtx.refresh();
+      } catch (_) {
+      }
+    }
+    setMode("values");
+  };
+  const onExport = async () => {
+    var _a, _b, _c;
+    setExporting(true);
+    setIoMsg(null);
+    setIoProgress({ phase: "running", done: 0, total: 0, label: "Collecting schema + values from ABDB\u2026" });
+    try {
+      const response = await callAction(
+        props,
+        getActionKey("exportConfig"),
+        "",
+        {}
+      );
+      const dump = (response == null ? void 0 : response.dump) || ((_a = response == null ? void 0 : response.body) == null ? void 0 : _a.dump);
+      if (!dump) throw new Error("Export response missing `dump`");
+      setIoProgress((p) => ({ ...p, label: "Building file\u2026" }));
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" });
+      const filename = `system-config-export-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.json`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      const c = dump.counts || {};
+      setIoProgress({ phase: "done", done: c.values || 0, total: c.values || 0, label: "Export complete" });
+      setIoMsg(`\u2713 Exported ${(_b = c.sections) != null ? _b : "?"} section(s) and ${(_c = c.values) != null ? _c : "?"} value(s) \u2192 ${filename}`);
+    } catch (e) {
+      console.error("Export failed", e);
+      setIoProgress({ phase: "error", done: 0, total: 0, label: "Export failed" });
+      setIoMsg(`Export failed: ${e.message || e}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+  const IMPORT_CHUNK_SIZE = 25;
+  const onImport = async () => {
+    var _a, _b;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.style.display = "none";
+    document.body.appendChild(input);
+    const file = await new Promise((resolve) => {
+      input.onchange = () => {
+        resolve(input.files && input.files[0]);
+      };
+      input.click();
+    });
+    document.body.removeChild(input);
+    if (!file) return;
+    let dump;
+    try {
+      const text = await file.text();
+      dump = JSON.parse(text);
+    } catch (e) {
+      setIoMsg(`Could not parse "${file.name}": ${e.message}`);
+      return;
+    }
+    const choice = await confirm({
+      title: `Import "${file.name}"?`,
+      variant: "information",
+      body: /* @__PURE__ */ jsxs4("span", { children: [
+        "Schema + values from this dump will be applied to the current workspace. website_id / store_id are remapped on the fly by matching",
+        /* @__PURE__ */ jsx4("code", { children: " website_code " }),
+        " and store ",
+        /* @__PURE__ */ jsx4("code", { children: "code" }),
+        " against the target environment's Commerce instance."
+      ] }),
+      choices: [
+        {
+          label: "Overwrite existing values",
+          value: "overwrite",
+          variant: "destructive",
+          description: "Recommended for restoring a backup. Existing rows are replaced."
+        },
+        {
+          label: "Insert-only",
+          value: "insert",
+          variant: "information",
+          description: "Skip rows that already exist; only add new ones."
+        }
+      ],
+      cancelLabel: "Cancel"
+    });
+    if (!choice) return;
+    const overwrite = choice === "overwrite";
+    const allValues = Array.isArray(dump.values) ? dump.values : [];
+    const schemaPayload = dump.schema;
+    const total = allValues.length;
+    setImporting(true);
+    setIoMsg(null);
+    setIoProgress({
+      phase: "running",
+      done: 0,
+      total,
+      label: schemaPayload ? "Importing schema\u2026" : "Importing values\u2026"
+    });
+    const aggregate = {
+      schemaImported: false,
+      schemaSkipped: false,
+      valuesInserted: 0,
+      valuesUpserted: 0,
+      valuesSkipped: 0,
+      unmappedSkipped: 0,
+      unmapped: [],
+      invalid: [],
+      idMap: null,
+      sensitiveReencrypted: 0,
+      sensitiveDecryptFailed: 0
+    };
+    const sensitiveCount = allValues.filter(
+      (v) => typeof (v == null ? void 0 : v.value) === "string" && v.value.startsWith("enc:v1:")
+    ).length;
+    try {
+      if (schemaPayload) {
+        const r = await callAction(
+          props,
+          getActionKey("importConfig"),
+          "",
+          { schema: schemaPayload, overwrite, valuesOnly: false, schemaOnly: true }
+        );
+        const s = (r == null ? void 0 : r.summary) || ((_a = r == null ? void 0 : r.body) == null ? void 0 : _a.summary);
+        if (s) {
+          aggregate.schemaImported = !!s.schemaImported;
+          aggregate.schemaSkipped = !!s.schemaSkipped;
+        }
+      }
+      const sensitivePaths = Array.isArray(dump.sensitivePaths) ? dump.sensitivePaths : void 0;
+      setIoProgress((p) => ({ ...p, label: "Importing values\u2026" }));
+      for (let i = 0; i < total; i += IMPORT_CHUNK_SIZE) {
+        const chunk = allValues.slice(i, i + IMPORT_CHUNK_SIZE);
+        const r = await callAction(
+          props,
+          getActionKey("importConfig"),
+          "",
+          {
+            values: chunk,
+            overwrite,
+            valuesOnly: true,
+            // Re-encrypt sensitive ciphertext against the target env's key.
+            sourceCryptKey: importSourceKey ? importSourceKey.trim() : void 0,
+            // sensitivePaths on every chunk so the backend knows what to
+            // encrypt even before the schema row lands.
+            dump: sensitivePaths ? { sensitivePaths } : void 0
+          }
+        );
+        const s = (r == null ? void 0 : r.summary) || ((_b = r == null ? void 0 : r.body) == null ? void 0 : _b.summary);
+        if (s) {
+          aggregate.valuesInserted += s.valuesInserted || 0;
+          aggregate.valuesUpserted += s.valuesUpserted || 0;
+          aggregate.valuesSkipped += s.valuesSkipped || 0;
+          aggregate.unmappedSkipped += s.unmappedSkipped || 0;
+          aggregate.sensitiveReencrypted += s.sensitiveReencrypted || 0;
+          aggregate.sensitiveDecryptFailed += s.sensitiveDecryptFailed || 0;
+          if (Array.isArray(s.unmapped)) aggregate.unmapped.push(...s.unmapped);
+          if (Array.isArray(s.invalid)) aggregate.invalid.push(...s.invalid);
+          if (s.idMap) {
+            if (!aggregate.idMap) {
+              aggregate.idMap = { ...s.idMap };
+            } else {
+              aggregate.idMap.matchedByCode = (aggregate.idMap.matchedByCode || 0) + (s.idMap.matchedByCode || 0);
+              aggregate.idMap.matchedById = (aggregate.idMap.matchedById || 0) + (s.idMap.matchedById || 0);
+            }
+          }
+        }
+        setIoProgress({
+          phase: "running",
+          done: Math.min(i + chunk.length, total),
+          total,
+          label: `Importing values\u2026 (${Math.min(i + chunk.length, total)}/${total})`
+        });
+      }
+      const lines = [
+        `\u2713 Import complete (${overwrite ? "overwrite" : "insert-only"})`,
+        `  Schema: ${aggregate.schemaImported ? "imported" : aggregate.schemaSkipped ? "skipped (exists)" : "no schema in dump"}`,
+        `  Values: inserted=${aggregate.valuesInserted}  upserted=${aggregate.valuesUpserted}  skipped=${aggregate.valuesSkipped}`,
+        aggregate.unmappedSkipped ? `  \u26A0 Unmapped rows skipped (no matching website_code/store_code in target): ${aggregate.unmappedSkipped}` : "",
+        sensitiveCount ? `  Sensitive: ${sensitiveCount} ciphertext row(s) in dump \u2192 re-encrypted=${aggregate.sensitiveReencrypted}, decrypt-failed=${aggregate.sensitiveDecryptFailed}${importSourceKey ? "" : " (no source key provided \u2014 values may show blank if this env's key differs)"}` : "",
+        aggregate.invalid.length ? `  \u26A0 Invalid rows: ${aggregate.invalid.length}` : "",
+        aggregate.idMap ? [
+          `  id remap \u2192 target(${aggregate.idMap.targetSource || "none"}, websites=${aggregate.idMap.targetWebsiteCount || 0}, stores=${aggregate.idMap.targetStoreCount || 0})  matched(by-code=${aggregate.idMap.matchedByCode || 0}, by-id=${aggregate.idMap.matchedById || 0})`,
+          !aggregate.idMap.hasTarget ? "  \u26A0 Target env Commerce returned no stores \u2014 check COMMERCE_BASE_URL / OAuth1 secrets in this workspace." : ""
+        ].filter(Boolean).join("\n") : ""
+      ].filter(Boolean);
+      setIoMsg(lines.join("\n"));
+      setIoProgress({ phase: "done", done: total, total, label: "Import complete" });
+      await refreshSchema();
+      try {
+        await configCtx.refresh();
+      } catch (_) {
+      }
+    } catch (e) {
+      console.error("Import failed", e);
+      setIoProgress((p) => ({ ...p, phase: "error", label: "Import failed" }));
+      setIoMsg(`Import failed: ${e.message || e}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+  const onSyncStoreMappings = async () => {
+    var _a, _b, _c, _d, _e, _f;
+    setSyncingStoreMappings(true);
+    setSyncMsg("Fetching websites + store views from Commerce\u2026");
+    try {
+      const response = await callAction(
+        props,
+        getActionKey("syncStoreMappings"),
+        "",
+        {}
+      );
+      const ok = (_b = response == null ? void 0 : response.ok) != null ? _b : (_a = response == null ? void 0 : response.body) == null ? void 0 : _a.ok;
+      const count = (_d = response == null ? void 0 : response.count) != null ? _d : (_c = response == null ? void 0 : response.body) == null ? void 0 : _c.count;
+      const mapping = (_f = response == null ? void 0 : response.mapping) != null ? _f : (_e = response == null ? void 0 : response.body) == null ? void 0 : _e.mapping;
+      if (!ok) throw new Error("Sync response missing `ok`");
+      const sample = mapping ? Object.entries(mapping).slice(0, 5).map(
+        ([id, m]) => `  ${id}: ${m.code} \u2192 website ${m.website_code}(${m.website_id}), lang=${m.language_code}`
+      ).join("\n") : "";
+      setSyncMsg(
+        `\u2713 Synced ${count} store(s) \u2192 general/settings/store_mappings
+` + (sample ? sample + (count > 5 ? `
+  \u2026 (${count - 5} more)` : "") : "")
+      );
+      try {
+        await configCtx.refresh();
+      } catch (_) {
+      }
+    } catch (e) {
+      console.error("Store-mapping sync failed", e);
+      setSyncMsg(`Sync failed: ${e.message || e}`);
+    } finally {
+      setSyncingStoreMappings(false);
+    }
+  };
+  return /* @__PURE__ */ jsxs4(
+    View2,
+    {
+      UNSAFE_style: {
+        background: PALETTE.bg,
+        minHeight: "100vh",
+        color: PALETTE.text
+      },
+      children: [
+        confirmDialog,
+        /* @__PURE__ */ jsxs4(View2, { padding: "size-400", maxWidth: "1400px", marginX: "auto", children: [
+          /* @__PURE__ */ jsx4(
+            PageHeader,
+            {
+              heroRef,
+              mode,
+              setMode,
+              scopeTree,
+              scopeTreeForPicker,
+              scopeKey,
+              onScopeChange,
+              onReloadStores: refreshScopeTree,
+              onOpenTools: () => setToolsOpen((o) => !o),
+              toolsOpen
+            }
+          ),
+          /* @__PURE__ */ jsxs4("div", { style: { paddingTop: 24 }, children: [
+            toolsOpen && mode === "values" && /* @__PURE__ */ jsx4(
+              ToolsPanel,
+              {
+                onClose: () => setToolsOpen(false),
+                onExport,
+                exporting,
+                onImport,
+                importing,
+                ioMsg,
+                ioProgress,
+                importSourceKey,
+                setImportSourceKey,
+                onSyncStoreMappings,
+                syncingStoreMappings,
+                syncMsg
+              }
+            ),
+            schemaLoading ? /* @__PURE__ */ jsx4(Card, { children: /* @__PURE__ */ jsx4(Flex2, { justifyContent: "center", marginY: "size-400", children: /* @__PURE__ */ jsx4(ProgressCircle2, { "aria-label": "Loading schema", isIndeterminate: true }) }) }) : mode === "schema" ? /* @__PURE__ */ jsx4(
+              SystemConfigSchemaEditor,
+              {
+                schema,
+                onSave: onSchemaSave,
+                onCancel: () => setMode("values"),
+                saving: schemaSaving,
+                error: schemaError,
+                palette: PALETTE
+              }
+            ) : /* @__PURE__ */ jsx4(
+              ValuesView,
+              {
+                schema,
+                onEditSchema: () => setMode("schema"),
+                toolsOpen,
+                setToolsOpen,
+                configCtx
+              }
+            )
+          ] })
+        ] })
+      ]
+    }
+  );
+}
+
+// web/src/components/MainPage.js
+import { jsx as jsx5, jsxs as jsxs5 } from "react/jsx-runtime";
+var MainPage = (props) => {
+  const location = useLocation2();
+  useEffect6(() => {
+    const fetchCredentials = async () => {
+      var _a, _b;
+      if (!props.ims.token) {
+        const guestConnection = await attach({ id: getExtensionId() });
+        props.ims.token = (_a = guestConnection == null ? void 0 : guestConnection.sharedContext) == null ? void 0 : _a.get("imsToken");
+        props.ims.org = (_b = guestConnection == null ? void 0 : guestConnection.sharedContext) == null ? void 0 : _b.get("imsOrgId");
+      }
+    };
+    fetchCredentials();
+  }, []);
+  const renderContent = () => {
+    switch (location.pathname) {
+      default:
+        return /* @__PURE__ */ jsx5(SystemConfig, { runtime: props.runtime, ims: props.ims });
+    }
+  };
+  return /* @__PURE__ */ jsxs5(View3, { UNSAFE_style: { overflowX: "clip" }, children: [
+    /* @__PURE__ */ jsx5(AppSectionNav, {}),
+    /* @__PURE__ */ jsx5(View3, { children: renderContent() })
+  ] });
+};
+
+// web/src/components/ExtensionRegistration.js
+import { useEffect as useEffect7 } from "react";
+import { jsx as jsx6 } from "react/jsx-runtime";
+function ExtensionRegistration(props) {
+  useEffect7(() => {
+    (async () => {
+      await register({
+        id: getExtensionId(),
+        methods: {}
+      });
+    })();
+  }, []);
+  return /* @__PURE__ */ jsx6(MainPage, { ims: props.ims, runtime: props.runtime });
+}
+
+// web/src/components/App.js
+import { jsx as jsx7, jsxs as jsxs6 } from "react/jsx-runtime";
+function App(props) {
+  props.runtime.on("configuration", ({ imsOrg, imsToken }) => {
+    console.log("configuration change", { imsOrg, imsToken });
+  });
+  return /* @__PURE__ */ jsx7(ErrorBoundary, { onError, FallbackComponent: fallbackComponent, children: /* @__PURE__ */ jsx7(HashRouter, { children: /* @__PURE__ */ jsx7(
+    Provider,
+    {
+      theme: lightTheme,
+      colorScheme: "light",
+      UNSAFE_className: "sm-provider",
+      children: /* @__PURE__ */ jsx7(Routes, { children: /* @__PURE__ */ jsx7(Route, { index: true, element: /* @__PURE__ */ jsx7(ExtensionRegistration, { runtime: props.runtime, ims: props.ims }) }) })
+    }
+  ) }) });
+  function onError(e, componentStack) {
+  }
+  function fallbackComponent({ componentStack, error }) {
+    return /* @__PURE__ */ jsxs6(React2.Fragment, { children: [
+      /* @__PURE__ */ jsx7("h1", { style: { textAlign: "center", marginTop: "20px" }, children: "Something went wrong :(" }),
+      /* @__PURE__ */ jsx7("pre", { children: componentStack + "\n" + error.message })
+    ] });
+  }
+}
+var App_default = App;
+export {
+  App_default as App,
+  AppSectionNav,
+  App_default as ConfigurationManagementApp,
+  DEFAULT_ACTION_KEYS,
+  ExtensionRegistration,
+  FIELD_TYPES,
+  FONT,
+  MainPage,
+  NAV_ITEMS,
+  PALETTE,
+  RADIUS,
+  SCOPES,
+  SHADOW,
+  SPACE,
+  SystemConfig,
+  SystemConfigSchemaEditor,
+  THEME,
+  buildStoreMappingsFromCommercePayload,
+  callAction,
+  coerceDefault,
+  configureWeb,
+  emptySchema,
+  flattenFields,
+  getActionKey,
+  getExtensionId,
+  getFieldPath,
+  isFieldSensitive,
+  isFieldVisibleAtScope,
+  useConfirm,
+  useSystemConfig,
+  useSystemConfigSchema
+};

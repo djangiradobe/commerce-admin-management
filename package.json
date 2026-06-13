@@ -1,0 +1,79 @@
+{
+  "name": "configuration-management",
+  "version": "0.1.11",
+  "description": "Schema-driven system configuration for Adobe Commerce App Builder sync apps. Magento-style scoped config in Adobe App Builder Database (ABDB) with encryption, Commerce REST helpers, and React Admin UI.",
+  "license": "Apache-2.0",
+  "author": "Adobe Inc.",
+  "keywords": [
+    "adobe-io",
+    "aio",
+    "app-builder",
+    "adobe-commerce",
+    "magento",
+    "configuration-management",
+    "abdb",
+    "react-spectrum"
+  ],
+  "main": "./src/index.js",
+  "bin": {
+    "configuration-management-setup": "./scripts/setup.js"
+  },
+  "scripts": {
+    "build": "node ./scripts/build-web.js",
+    "prepublishOnly": "node ./scripts/build-web.js",
+    "postinstall": "node ./scripts/build-web.js && node ./scripts/setup.js"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./abdb": "./src/abdb-helper.js",
+    "./config": "./src/abdb-config.js",
+    "./crypto": "./src/system-config-crypto.js",
+    "./shared": "./src/system-config-shared.js",
+    "./oauth1a": "./src/oauth1a.js",
+    "./web": "./web/index.js",
+    "./web/index.js": "./web/index.js",
+    "./web/styles.css": "./web/styles.css",
+    "./web/dist/index.css": "./web/dist/index.css",
+    "./web/src/styles/index.css": "./web/src/styles/index.css",
+    "./actions/utils": "./actions/utils.js",
+    "./actions/ext.config.yaml": "./actions/configurations/ext.config.yaml"
+  },
+  "files": [
+    "src",
+    "web",
+    "actions",
+    "scripts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@adobe/aio-lib-core-auth": "^1.1.0",
+    "@adobe/aio-lib-db": "^1.0.1",
+    "@adobe/aio-lib-ims": "^8.0.0",
+    "@adobe/aio-sdk": "^6.0.0",
+    "@adobe/exc-app": "^1.1.3",
+    "@adobe/react-spectrum": "^3.30.0",
+    "@adobe/uix-guest": "^0.8.3",
+    "@spectrum-icons/workflow": "^4.2.4",
+    "dotenv": "^16.4.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-error-boundary": "^3.1.4",
+    "react-router-dom": "^6.8.1"
+  },
+  "dependencies": {
+    "configuration-get-config": "^0.1.1",
+    "esbuild": "^0.25.12"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/adobe/configuration-management.git",
+    "directory": "packages/configuration-management"
+  },
+  "bugs": {
+    "url": "https://github.com/adobe/configuration-management/issues"
+  },
+  "homepage": "https://github.com/adobe/configuration-management/tree/main/packages/configuration-management#readme"
+}
