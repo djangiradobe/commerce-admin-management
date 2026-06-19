@@ -7,7 +7,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 const { Core } = require('@adobe/aio-sdk')
 const { errorResponse, checkMissingRequestInputs, logDetails } = require('../../utils')
-const { getClient } = require('configuration-management/abdb')
+const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
 const {
   SENSITIVE_PLACEHOLDER,
   USE_DEFAULT_SENTINEL,
@@ -15,8 +15,8 @@ const {
   toStateKey,
   normalizeScope,
   normalizeScopeId
-} = require('configuration-management/shared')
-const { encrypt } = require('configuration-management/crypto')
+} = require('@adobedjangir/commerce-admin-management/shared')
+const { encrypt } = require('@adobedjangir/commerce-admin-management/crypto')
 
 const COLLECTION = 'system_config_data'
 

@@ -1,218 +1,637 @@
-# configuration-management
+# @adobedjangir/commerce-admin-management — Developer Guide
 
-Schema-driven system configuration for **Adobe Commerce** and **Adobe App Builder** sync applications.
+A turnkey Adobe App Builder package for **schema-driven system configuration**
+in Adobe Commerce extensions. Provides encrypted scoped storage, a React-Spectrum
+admin UI mounted inside the Commerce Admin, OAuth1a helpers, import/export,
+and an extension point for host apps to add their own pages and actions.
 
-Config reading (`getConfig`, ABDB, crypto, Commerce REST) lives in the companion package [`configuration-get-config`](https://www.npmjs.com/package/configuration-get-config). This package adds the React Admin UI, OpenWhisk actions, and App Builder setup.
+---
 
-## Install
+## Table of contents
 
-```bash
-npm install configuration-management
-```
+1. [What you get](#what-you-get)
+2. [Quick start](#quick-start)
+3. [What `npm install` scaffolds for you](#what-npm-install-scaffolds-for-you)
+4. [Required `.env` values](#required-env-values)
+5. [Architecture](#architecture)
+6. [Built-in actions](#built-in-actions)
+7. [Storage model](#storage-model)
+8. [Encryption](#encryption)
+9. [Commerce connection flow](#commerce-connection-flow)
+10. [Adding a host page (UI tab)](#adding-a-host-page-ui-tab)
+11. [Adding a host action (backend)](#adding-a-host-action-backend)
+12. [Reusable helpers exported by the package](#reusable-helpers-exported-by-the-package)
+13. [Configuration override matrix](#configuration-override-matrix)
+14. [Common operations](#common-operations)
+15. [Troubleshooting](#troubleshooting)
 
-Your App Builder project must also have Adobe I/O runtime dependencies installed (peer dependencies):
+---
 
-```bash
-npm install @adobe/aio-lib-core-auth @adobe/aio-lib-db @adobe/aio-lib-ims @adobe/aio-sdk dotenv
-```
+## What you get
 
-For the React Admin UI, also install Spectrum and React peers:
+| Capability | Where it lives |
+|---|---|
+| Schema-driven config form (sections / groups / fields) | UI: `SystemConfig` page (built-in tab) |
+| Per-scope values (`default → websites → stores`) with Magento-style inheritance | Action: `system-config-list` / `system-config-save` |
+| AES-256-GCM encryption of sensitive fields at rest | `system-config-crypto` module |
+| Adobe Commerce REST/OAuth1a client helper | `commerce-creds` module |
+| First-run setup wizard for Commerce credentials (saved encrypted in ABDB) | UI: `CommerceSetupWizard` |
+| Bulk JSON export/import with cross-environment website/store id remapping | Actions: `export-config`, `import-config` |
+| App Builder Database (ABDB) auto-provisioning on deploy | `ext.config.yaml` |
+| Host-extensible nav and pages | `configureWeb({ extraNav, extraPages })` |
+| Auto-scaffolded host scaffold on `npm install` | `scripts/setup.js` (postinstall hook) |
 
-```bash
-npm install react react-dom @adobe/react-spectrum @adobe/uix-guest @adobe/exc-app react-router-dom react-error-boundary @spectrum-icons/workflow
-```
+---
 
 ## Quick start
 
-Read a config value from ABDB inside an App Builder action:
+```bash
+# 1. Create a new App Builder project (skip if you already have one)
+aio app init my-commerce-admin
+cd my-commerce-admin
 
-```js
-// Preferred — config reader package (installed automatically with configuration-management)
-const { getConfig } = require('configuration-get-config')
+# 2. Install the package — postinstall scaffolds everything
+npm install @adobedjangir/commerce-admin-management
 
-// Or re-exported from this package
-const { getConfig } = require('configuration-management')
-// const { getConfig } = require('configuration-management/config')
+# 3. Fill in .env (see required values below)
+cp env.dist .env
+$EDITOR .env
 
-async function main (params) {
-  const apiUrl = await getConfig('sync_general/api/url', params, {
-    scope: 'websites',
-    scopeCode: 'base'
-  })
-  // ...
-}
+# 4. Deploy. ABDB is auto-provisioned; 11 actions + web assets ship to CDN.
+aio app deploy
 ```
 
-## API
+Open the URL the deploy prints. First run shows the Commerce setup wizard;
+enter your store URL + OAuth1a creds, click **Test connection**, then
+**Save & continue**. The rest of the UI is then unlocked.
 
-### Config resolution (`configuration-get-config`)
-
-Implemented in [`configuration-get-config`](https://www.npmjs.com/package/configuration-get-config) and re-exported here.
-
-| Export | Description |
-|--------|-------------|
-| `getConfig(path, params, options)` | Read a value with Magento-style scope inheritance |
-| `clearAbdbConfigCache()` | Clear the in-process lookup cache |
-
-### ABDB helpers (`configuration-management/abdb`)
-
-| Export | Description |
-|--------|-------------|
-| `getClient(params, options)` | Connect to ABDB using IMS credentials from action params |
-| `withDbClient(params, fn, options)` | Run work with auto-close |
-| `findOne`, `insertOne`, `updateOne`, … | Mongo-style collection helpers |
-
-### Scope / path model (`configuration-management/shared`)
-
-| Export | Description |
-|--------|-------------|
-| `toStateKey(scope, scopeId, path)` | Encode `section/group/field` as ABDB document `_id` |
-| `buildInheritanceChain(scope, scopeId, parentWebsiteId)` | Magento-style fallback chain |
-| `isValidPath`, `normalizeScope`, `normalizeScopeId` | Validation helpers |
-
-### Encryption (`configuration-management/crypto`)
-
-| Export | Description |
-|--------|-------------|
-| `encrypt(plaintext, params)` | AES-256-GCM encrypt for at-rest storage |
-| `decrypt(ciphertext, params)` | Decrypt stored values |
-| `isEncrypted(value)` | Detect `enc:v1:` wire format |
-
-### Commerce REST (`configuration-management/oauth1a`)
-
-| Export | Description |
-|--------|-------------|
-| `getCommerceOauthClient(options, logger)` | OAuth 1.0a client for Adobe Commerce REST API |
-
-### React Admin UI (`configuration-management/web`)
-
-Spectrum-based Commerce Admin extension UI for schema-driven system configuration.
-
-```js
-import React from 'react'
-import { createRoot } from 'react-dom/client'
-import {
-  ConfigurationManagementApp,
-  configureWeb
-} from 'configuration-management/web'
-import actionUrls from './config.json'
-import 'configuration-management/web/styles.css'
-
-configureWeb({ actionUrls })
-
-createRoot(document.getElementById('root')).render(
-  React.createElement(ConfigurationManagementApp, { runtime, ims })
-)
-```
-
-The web UI is **pre-built** in the package. Import the JS entry — styles load automatically:
-
-```js
-import { ConfigurationManagementApp, configureWeb } from 'configuration-management/web'
-```
-
-Or import styles separately:
-
-```js
-import 'configuration-management/web/styles.css'
-```
-
-| Export | Description |
-|--------|-------------|
-| `ConfigurationManagementApp` | Full app shell (router + Spectrum provider + UIX registration) |
-| `SystemConfig` | Dynamic config form UI |
-| `SystemConfigSchemaEditor` | Schema designer |
-| `useSystemConfig`, `useSystemConfigSchema` | Data hooks |
-| `configureWeb({ actionUrls, extensionId, actionKeys })` | Wire deploy-time action URLs before render |
-
-Styles: `import 'configuration-management/web/styles.css'`
-
-### App Builder actions (`configuration-management/actions`)
-
-OpenWhisk runtime actions and the Commerce Admin extension manifest ship with the package.
-
-#### Automatic wiring on `npm install`
-
-The package runs a **postinstall** script that patches your project's `app.config.yaml`
-(if present) with:
-
-```yaml
-extensions:
-  commerce/backend-ui/1:
-    $include: node_modules/configuration-management/actions/configurations/ext.config.yaml
-```
-
-It does **not** modify your `web-src/` files. Add the UI to your existing App Builder
-bootstrap manually (see React Admin UI above).
-
-- Run `npm install` from your App Builder project root (where `app.config.yaml` lives).
-- Do not use `npm install --ignore-scripts` (that skips postinstall).
-
-Opt out for a single install:
+For local dev:
 
 ```bash
-CONFIGURATION_MANAGEMENT_SKIP_SETUP=1 npm install configuration-management
+aio app run
+# → https://localhost:9080
 ```
 
-Re-run manually anytime:
+---
 
-```bash
-npx configuration-management-setup
-```
+## What `npm install` scaffolds for you
 
-#### Manual wiring
+The package's `postinstall` runs `scripts/setup.js`, which idempotently
+materializes a host scaffold:
 
-If you prefer to edit `app.config.yaml` yourself:
+| Path | First install | Subsequent installs |
+|---|---|---|
+| `app.config.yaml` | Adds `extensions: commerce/backend-ui/1: $include …` if absent | No-op |
+| `web-src/src/index.js` | Writes the package-wired bootstrap | Re-syncs if the marker is present; left alone if the host imported `@adobedjangir/commerce-admin-management/web` and removed the marker |
+| `web-src/src/nav.json` | Writes a starter entry → `#/welcome` | Never overwritten |
+| `web-src/src/pages/index.js` | Writes a registry that imports `Welcome` | Never overwritten |
+| `web-src/src/pages/Welcome.js` | Writes a React-Spectrum starter page | Never overwritten |
 
-```yaml
-extensions:
-  commerce/backend-ui/1:
-    $include: node_modules/configuration-management/actions/configurations/ext.config.yaml
-```
+> The "never overwritten" rule means you can edit those files freely;
+> upgrading the package will not lose your changes.
 
-The bundled `ext.config.yaml` declares all actions under the `ConfigurationManagement` package
-(`system-config-list`, `system-config-save`, `system-config-schema`, `export-config`,
-`import-config`, `commerce-rest-get`, `sync-store-mappings-from-commerce`) plus admin menu
-`registration`. It expects a `web-src/` folder at your project root for the UI shell.
+The package also runs `scripts/build-web.js`, producing
+`node_modules/@adobedjangir/commerce-admin-management/web/dist/index.{js,css}` so the host
+bundle has a ready-to-consume artifact.
 
-**Minimal host project layout:**
+---
 
-```
-my-app/
-├── app.config.yaml          ← $include ext.config (auto-patched on npm install)
-├── web-src/
-│   └── src/
-│       ├── index.js         ← your app bootstrap + package imports (see above)
-│       └── config.json      ← generated by aio app deploy
-├── .env
-└── package.json             ← depends on configuration-management
-```
-
-Action helper utilities are also exported for custom actions:
-
-```js
-const { errorResponse, checkMissingRequestInputs } = require('configuration-management/actions/utils')
-```
-
-## Environment / action inputs
+## Required `.env` values
 
 | Variable | Purpose |
-|----------|---------|
-| `AIO_DB_REGION` | ABDB region (`amer`, `emea`, …) |
-| `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `OAUTH_ORG_ID`, `OAUTH_SCOPES` | IMS credentials for ABDB |
-| `SYSTEM_CONFIG_CRYPT_KEY` | Preferred encryption key (fallback: `OAUTH_CLIENT_SECRET`) |
-| `COMMERCE_BASE_URL`, `COMMERCE_CONSUMER_*`, `COMMERCE_ACCESS_TOKEN*` | Commerce REST (for scope code resolution) |
+|---|---|
+| `OAUTH_CLIENT_ID` | Adobe IMS Server-to-Server credentials — for ABDB token |
+| `OAUTH_CLIENT_SECRET` | same |
+| `OAUTH_ORG_ID` | same |
+| `OAUTH_SCOPES` | should include `AdobeID, openid, read_organizations, additional_info.projectedProductContext, additional_info.roles, adobeio_api, read_client_secret, manage_client_secrets, event_receiver_api, commerce.accs` |
+| `AIO_DB_REGION` | One of `amer \| emea \| apac \| aus`. Must match the region where the App Builder Database service is entitled. |
+| `SYSTEM_CONFIG_CRYPT_KEY` | At least 8 chars. **Generate once with `openssl rand -base64 32` and never rotate** — rotating breaks every encrypted value already in ABDB. |
+
+Commerce REST creds (`COMMERCE_BASE_URL`, `COMMERCE_CONSUMER_KEY`, …) are
+**no longer set via `.env`**. They are entered in the in-app wizard and
+encrypted into ABDB under `default/_system/commerce/connection`.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Adobe Commerce Admin  ←  iframe  ←  Experience Cloud Shell │
+└─────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+              https://<workspace>.adobeio-static.net
+                                │
+                                ▼
+    React app (@adobedjangir/commerce-admin-management/web/dist/index.js)
+                                │
+                ┌───────────────┼───────────────┐
+                ▼               ▼               ▼
+  HashRouter   AppSectionNav   MainPage (gated on connection status)
+                                │
+                                ▼
+            getNavItems()  +  getPageComponent(id)
+                                │
+                                ▼
+            <Page runtime ims> ─→  callAction(props, key, op, body)
+                                │
+                                ▼
+            POST  /api/v1/web/<package>/<action>
+                                │
+                                ▼
+                    OpenWhisk action handlers
+                                │
+                ┌───────────────┼───────────────┐
+                ▼               ▼               ▼
+            ABDB        Commerce REST/OAuth1a   IMS
+       (system_config_data, system_config_schema, _system/*)
+```
+
+---
+
+## Built-in actions
+
+All under runtime package **`CommerceAdminManagement`**.
+
+| Action | Verb | Description |
+|---|---|---|
+| `commerce-rest-get` | POST | Proxy any Commerce REST GET via OAuth1a using stored creds |
+| `commerce-connection-status` | POST | `{ configured: bool, creds: masked }` |
+| `commerce-connection-test` | POST | Verifies form values OR saved creds against `store/storeConfigs` |
+| `commerce-connection-save` | POST | Tests then encrypts + upserts creds in ABDB |
+| `system-config-list` | POST | Reads paths with Magento-style scope inheritance, decrypts sensitive fields |
+| `system-config-save` | POST | Upserts values, encrypts sensitive paths |
+| `system-config-schema` | POST | CRUD on the schema document |
+| `export-config` | POST | Dumps schema + values (sensitive decrypted) as portable JSON |
+| `import-config` | POST | Re-imports a dump, re-encrypts with the target's key, remaps website/store ids via Commerce REST |
+| `sync-store-mappings-from-commerce` | POST | Refreshes the `general/settings/store_mappings` blob from Commerce |
+
+All actions are `require-adobe-auth: false` and `include-ims-credentials: true`,
+so they receive the host's OAuth credentials via env-injection — they don't
+require a user IMS token.
+
+---
 
 ## Storage model
 
-Documents in the `system_config_data` collection:
+ABDB collection `system_config_data` — one document per (scope, scope_id, path):
+
+```json
+{
+  "_id": "sysconfig__default__0__campaign_general__url__url",
+  "scope": "default",
+  "scope_id": "0",
+  "path": "campaign_general/url/url",
+  "value": "https://example.com",
+  "createdAt": "2026-01-04T...",
+  "updatedAt": "2026-06-19T..."
+}
+```
+
+- `_id` is `sysconfig__<scope>__<scopeId>__<path-with-/-as-__>`
+- Inheritance chain: `stores:<storeId> → websites:<websiteId> → default:0`
+- Sensitive `value`s carry the prefix `enc:v1:<salt>:<iv>:<tag>:<ct>` (all
+  base64url) — see [Encryption](#encryption).
+
+Schema is stored separately in `system_config_schema` (single doc `_id: 'v1'`).
+
+---
+
+## Encryption
+
+`SYSTEM_CONFIG_CRYPT_KEY` is the master secret for AES-256-GCM.
+
+```js
+const { encrypt, decrypt, isEncrypted } = require('@adobedjangir/commerce-admin-management/crypto')
+
+encrypt('hello', params)            // → 'enc:v1:...:...:...:...'
+decrypt('enc:v1:...', params)       // → 'hello'
+isEncrypted('enc:v1:...')           // → true
+```
+
+- Per-record `salt` ⇒ same plaintext under same key produces a different
+  ciphertext each save (no oracle attacks).
+- Wire format is versioned (`v1`) so the algorithm can be rotated without
+  breaking existing values.
+- A fallback to `OAUTH_CLIENT_SECRET` exists for first-touch convenience but
+  is **strongly discouraged in production** — your IMS client secret rotates;
+  your at-rest data must not.
+
+---
+
+## Commerce connection flow
 
 ```
-{ _id, scope, scope_id, path, value, createdAt, updatedAt }
+First load           ──→  GET /commerce-connection-status   {configured: false}
+                                     │
+                                     ▼
+                            CommerceSetupWizard
+                                     │
+User fills form       ──→  POST /commerce-connection-test   {ok: true|false}
+User clicks Save      ──→  POST /commerce-connection-save
+                                     │
+                                     ▼  encrypt(JSON.stringify(creds), SYSTEM_CONFIG_CRYPT_KEY)
+                                     │  upsert ABDB at default/_system/commerce/connection
+                                     ▼
+                            App unlocks → System Config tab visible
 ```
 
-Config paths use the format `section/group/field` (e.g. `sync_general/api/url`).
+Any action that needs Commerce REST calls
+`getCommerceCreds(params, logger)` or
+`getStoredCommerceOauthClient(params, logger)`, which read+decrypt the blob.
+A 5-minute in-process cache avoids repeating the lookup per request.
+
+A **Reconfigure Commerce** button in the top-right of the nav lets operators
+edit/replace the creds later.
+
+---
+
+## Adding a host page (UI tab)
+
+Three edits, no rebuild of the package:
+
+### 1. Create the page
+
+```jsx
+// web-src/src/pages/Orders.js
+import React from 'react'
+import { View, Heading } from '@adobe/react-spectrum'
+
+export default function Orders ({ runtime, ims }) {
+  return (
+    <View padding="size-400">
+      <Heading level={2}>Orders</Heading>
+    </View>
+  )
+}
+```
+
+### 2. Register it
+
+```js
+// web-src/src/pages/index.js
+import Welcome from './Welcome'
+import Orders from './Orders'
+
+const pages = {
+  welcome: Welcome,
+  orders: Orders
+}
+
+export default pages
+```
+
+### 3. Add a nav entry
+
+```json
+// web-src/src/nav.json
+{
+  "items": [
+    { "id": "welcome", "path": "/welcome", "label": "Welcome", "icon": "Folder" },
+    { "id": "orders",  "path": "/orders",  "label": "Orders",  "icon": "ShoppingCart" }
+  ]
+}
+```
+
+`aio app run` → the tab appears. The page receives `{ runtime, ims }` as
+props for use with `callAction`.
+
+**Icon names** come from a Spectrum-icon registry in
+[`web/src/nav-icons.js`](web/src/nav-icons.js). Built-in: `Settings`,
+`Properties`, `Data`, `User`, `ShoppingCart`, `Box`, `Folder`. To add more,
+extend that file and rebuild the package (`node scripts/build-web.js`).
+
+### Override a built-in page
+
+If you want to replace the built-in **System Configurations** with your own
+version, just put an entry with the same id in your host registry:
+
+```js
+const pages = { 'system-config': MyOwnSystemConfig, ... }
+```
+
+The host always wins on id collision.
+
+---
+
+## Adding a host action (backend)
+
+Adobe App Builder merges `application.runtimeManifest` from `app.config.yaml`
+with the extension's manifest, so host-defined actions live next to the
+package's without any wiring step.
+
+### 1. Write the action
+
+```js
+// actions/reports-list/index.js
+const { Core } = require('@adobe/aio-sdk')
+const { errorResponse } = require('@adobedjangir/commerce-admin-management/actions/utils')
+const {
+  getStoredCommerceOauthClient
+} = require('@adobedjangir/commerce-admin-management/actions/commerce-creds')
+
+async function main (params) {
+  const logger = Core.Logger('reports-list', { level: params.LOG_LEVEL || 'info' })
+  try {
+    const oauth = await getStoredCommerceOauthClient(params, logger)
+    const orders = await oauth.get('orders?searchCriteria[pageSize]=10')
+    return { statusCode: 200, body: { ok: true, items: orders.items || [] } }
+  } catch (e) {
+    if (e.code === 'COMMERCE_NOT_CONFIGURED') {
+      return errorResponse(412, e.message, logger)
+    }
+    return errorResponse(500, e.message, logger)
+  }
+}
+
+exports.main = main
+```
+
+### 2. Declare it in `app.config.yaml`
+
+```yaml
+application:
+  runtimeManifest:
+    packages:
+      HostActions:
+        license: Apache-2.0
+        actions:
+          reports-list:
+            function: actions/reports-list/index.js
+            web: 'yes'
+            runtime: 'nodejs:20'
+            inputs:
+              LOG_LEVEL: debug
+              SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
+              OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+              OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+              OAUTH_ORG_ID: $OAUTH_ORG_ID
+              OAUTH_SCOPES: $OAUTH_SCOPES
+              AIO_DB_REGION: $AIO_DB_REGION
+            annotations:
+              require-adobe-auth: false
+              include-ims-credentials: true
+              final: true
+```
+
+`aio app deploy` ships 11 package actions **+** your `HostActions/reports-list`
+together. The action URL appears in `web-src/src/config.json` automatically.
+
+### 3. Call it from a host page
+
+```jsx
+import { callAction } from '@adobedjangir/commerce-admin-management/web'
+
+// inside the component:
+const r = await callAction({ runtime, ims }, 'HostActions/reports-list', '', { /* body */ })
+console.log(r.body)
+```
+
+`callAction(props, key, operation, body)` POSTs to the URL stored under
+`key` in `web-src/src/config.json`, adds `Bearer` + `x-gw-ims-org-id`
+headers, parses the JSON response, and surfaces non-2xx as thrown errors
+with `err.status` and `err.response`.
+
+---
+
+## Reusable helpers exported by the package
+
+### Backend (Node)
+
+```js
+// ABDB client + helpers
+const {
+  getClient,                    // → { client, close } using IMS S2S creds
+  withDbClient,                 // run a function with an auto-closed client
+  ensureImportCollectionsExist
+} = require('@adobedjangir/commerce-admin-management/abdb')
+
+// Magento-style scope helpers
+const {
+  toStateKey,                   // (scope, scopeId, path) → ABDB _id
+  isValidPath,
+  normalizeScope,
+  normalizeScopeId,
+  buildInheritanceChain,
+  SENSITIVE_PLACEHOLDER
+} = require('@adobedjangir/commerce-admin-management/shared')
+
+// Per-record AES-256-GCM
+const {
+  encrypt,
+  decrypt,
+  isEncrypted
+} = require('@adobedjangir/commerce-admin-management/crypto')
+
+// Commerce REST/OAuth1a
+const {
+  getOauthClient,
+  getCommerceOauthClient
+} = require('@adobedjangir/commerce-admin-management/oauth1a')
+
+// Commerce credential storage (stored encrypted in ABDB)
+const {
+  readCommerceCreds,
+  writeCommerceCreds,
+  testCommerceConnection,
+  getCommerceCreds,
+  getStoredCommerceOauthClient
+} = require('@adobedjangir/commerce-admin-management/actions/commerce-creds')
+
+// Schema-driven config lookup at runtime (used by external sync actions)
+const { getConfig } = require('@adobedjangir/commerce-admin-management/config')
+const value = await getConfig('campaign_general/url/url', params, { scope: 'stores', scopeCode: 'en_ch' })
+
+// Top-level barrel:
+const { getConfig, getClient, encrypt } = require('@adobedjangir/commerce-admin-management')
+```
+
+### Front-end (ESM)
+
+```js
+import {
+  // App shell
+  CommerceAdminManagementApp,   // full router + Spectrum provider
+  configureWeb,                 // pass actionUrls + extraNav + extraPages
+
+  // Components
+  MainPage,
+  SystemConfig,
+  SystemConfigSchemaEditor,
+  AppSectionNav,
+
+  // Registries
+  getNavItems,
+  getPageComponent,
+  NAV_ICONS,
+  getNavIcon,
+  BUILT_IN_PAGES,
+
+  // Hooks
+  useSystemConfig,
+  useSystemConfigSchema,
+  useConfirm,
+
+  // Utilities
+  callAction,
+
+  // Theme tokens (for styling host pages consistently)
+  THEME, PALETTE, RADIUS, SHADOW, SPACE, FONT
+} from '@adobedjangir/commerce-admin-management/web'
+import '@adobedjangir/commerce-admin-management/web/styles.css'
+```
+
+---
+
+## Configuration override matrix
+
+| Setting | Default lives in | Override location | Override mechanism |
+|---|---|---|---|
+| ABDB auto-provision | package `ext.config.yaml` (`runtimeManifest.database.auto-provision: true`) | host `app.config.yaml` | `application: runtimeManifest: database: auto-provision: false` |
+| ABDB region | package `ext.config.yaml` (literal `emea`) | host `app.config.yaml` | `application: runtimeManifest: database: region: amer` (and update `AIO_DB_REGION` in `.env` to match) |
+| Runtime IMS token | computed by `aio-lib-core-auth` | n/a | The action runtime injects via `include-ims-credentials: true` |
+| Action keys (URL paths) | `web/src/settings.js` (`DEFAULT_ACTION_KEYS`) | host bootstrap | `configureWeb({ actionKeys: { ... } })` |
+| Built-in nav entries | package `web/src/nav.json` | host `web-src/src/nav.json` | extras merge after built-ins; host wins on id collision |
+| Built-in pages | package `web/src/pages/index.js` | host `web-src/src/pages/index.js` | extras merge; host wins on id collision |
+| Bootstrap (`web-src/src/index.js`) | package generator | own the file | Either remove the marker comment **and** import from `@adobedjangir/commerce-admin-management/web`, **or** edit freely while keeping the marker (loses on next install) |
+
+---
+
+## Common operations
+
+### Rotate `SYSTEM_CONFIG_CRYPT_KEY`
+
+**Do not** unless you've planned for re-encryption — every existing encrypted
+value becomes undecryptable. If you must:
+
+1. Export with the old key: `POST /export-config { schemaOnly: false }` — the
+   dump contains plaintext values for sensitive fields (v2+ dump format).
+2. Update `SYSTEM_CONFIG_CRYPT_KEY` in `.env` and redeploy.
+3. Re-import the dump: `POST /import-config { dump, overwrite: true }` — the
+   importer re-encrypts sensitive paths with the new key.
+
+For cross-environment migration (different key on each side), pass
+`sourceCryptKey: '<old-key>'` to `import-config` so it can decrypt the
+ciphertext with the old key before re-encrypting with the new one.
+
+### Change region
+
+1. Update `AIO_DB_REGION` in `.env`.
+2. Update `region:` literal under `runtimeManifest.database` in
+   `app.config.yaml` (host overrides the package default).
+3. Ensure the workspace has App Builder Database entitled in that region in
+   the Adobe Developer Console.
+4. `aio app deploy`.
+
+### Promote a deploy
+
+```bash
+aio app deploy --workspace Production
+```
+
+Targets the named workspace's database/region/region-bound creds.
+`SYSTEM_CONFIG_CRYPT_KEY` should differ per environment; use
+`import-config` with `sourceCryptKey` to migrate values.
+
+### Add an icon for use in `nav.json`
+
+1. Import the icon into `packages/commerce-admin-management/web/src/nav-icons.js`
+2. Add it to the `NAV_ICONS` map
+3. `node packages/commerce-admin-management/scripts/build-web.js`
+4. Reference it in `nav.json` as `"icon": "<NewIconName>"`
+
+### Re-link a local package during development
+
+If you're hacking on the package and need the host to pick up changes:
+
+```bash
+cd packages/commerce-admin-management
+node scripts/build-web.js
+cd ../..
+npm install ./packages/commerce-admin-management   # refreshes node_modules link
+rm -rf .parcel-cache dist web-src/dist
+aio app run
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Database not provisioned` | App Builder Database not entitled on the workspace, **or** never ran `aio app deploy` since adding the package | Add the service in the Developer Console (region must match `AIO_DB_REGION`), then `aio app deploy` |
+| `Invalid region '$AIO_DB_REGION'` | Tried to use `$VAR` substitution in `runtimeManifest.database.region` | aio substitutes `$VAR` only inside action `inputs:`. Use a literal region in YAML |
+| Blank page at `#/<anything>` | Route table doesn't include a catch-all | Already fixed — `App.js` uses `path="*"`. If you forked it, add `<Route path="*" element={…}>` |
+| Stuck on "Checking Commerce connection…" forever | Running outside Experience Cloud iframe; `@adobe/uix-guest`'s `attach()` was blocking | Already fixed — MainPage's `attach()` now races a 2-second timeout |
+| Reports tab blank but System Configurations works | `pages/index.js` used CommonJS `require('./X').default` interop | Use ES `import X from './X'` instead |
+| Nav button overflows below tabs | CSS not picked up | Make sure the package's `dist/index.css` is loaded (the bootstrap imports it automatically) |
+| Encryption errors after env change | `SYSTEM_CONFIG_CRYPT_KEY` was rotated and there are old `enc:v1:` values | Either restore the old key, or perform the export/import re-encryption flow above |
+| `npm install` overwrote my bootstrap | Marker comment still present | Remove the marker comment line, **and** ensure your file imports from `@adobedjangir/commerce-admin-management/web` so setup recognizes host-managed mode |
+
+---
+
+## File reference
+
+```
+packages/commerce-admin-management/
+├── DEVELOPER.md                                ← you are here
+├── README.md                                   ← short overview
+├── package.json
+├── src/                                        ← thin re-exports from @adobedjangir/commerce-admin-get-config
+│   ├── abdb-helper.js
+│   ├── abdb-config.js
+│   ├── system-config-crypto.js
+│   ├── system-config-shared.js
+│   └── oauth1a.js
+├── actions/
+│   ├── utils.js
+│   ├── commerce-creds.js                       ← read/write/test encrypted creds in ABDB
+│   └── configurations/
+│       ├── ext.config.yaml                     ← runtime manifest (database + 11 actions)
+│       ├── index.html
+│       ├── registration/index.js
+│       ├── commerce/index.js
+│       ├── commerce-connection-status/index.js
+│       ├── commerce-connection-test/index.js
+│       ├── commerce-connection-save/index.js
+│       ├── system-config-list/index.js
+│       ├── system-config-save/index.js
+│       ├── system-config-schema/index.js
+│       ├── export-config/index.js
+│       ├── import-config/index.js
+│       └── sync-store-mappings-from-commerce/index.js
+├── web/
+│   ├── index.js                                ← re-exports dist/
+│   ├── styles.css                              ← flat fallback
+│   ├── dist/                                   ← built by scripts/build-web.js
+│   └── src/
+│       ├── index.js                            ← package entry
+│       ├── nav.json                            ← built-in nav entries
+│       ├── nav-icons.js                        ← string-name → Spectrum icon map
+│       ├── settings.js                         ← actionKeys, extensionId, configureWeb, registries
+│       ├── theme.js
+│       ├── utils.js                            ← callAction
+│       ├── styles/index.css
+│       ├── pages/index.js                      ← built-in page registry
+│       ├── components/
+│       │   ├── App.js                          ← router + Provider + ErrorBoundary
+│       │   ├── MainPage.js                     ← gates app on Commerce connection
+│       │   ├── ExtensionRegistration.js        ← UIX guest registration
+│       │   ├── AppSectionNav.js                ← top nav from registry
+│       │   ├── CommerceSetupWizard.js          ← first-run wizard
+│       │   ├── SystemConfig.js                 ← main config form
+│       │   └── SystemConfigSchemaEditor.js     ← schema editor
+│       ├── hooks/
+│       ├── schema/systemConfigSchema.js
+│       └── utils/storeMappingsFromCommerceRest.js
+└── scripts/
+    ├── build-web.js                            ← esbuild bundle
+    └── setup.js                                ← postinstall scaffolding
+```
+
+---
 
 ## License
 
-Apache-2.0
+Apache-2.0 © Adobe Inc.

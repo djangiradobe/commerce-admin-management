@@ -12,7 +12,7 @@ import { MainPage } from './components/MainPage'
 import ExtensionRegistration from './components/ExtensionRegistration'
 import SystemConfig from './components/SystemConfig'
 import SystemConfigSchemaEditor from './components/SystemConfigSchemaEditor'
-import AppSectionNav, { NAV_ITEMS } from './components/AppSectionNav'
+import AppSectionNav from './components/AppSectionNav'
 
 export { useSystemConfig } from './hooks/useSystemConfig'
 export { useSystemConfigSchema } from './hooks/useSystemConfigSchema'
@@ -25,8 +25,12 @@ export {
   configureWeb,
   getExtensionId,
   getActionKey,
+  getNavItems,
+  getPageComponent,
   DEFAULT_ACTION_KEYS
 } from './settings'
+export { NAV_ICONS, getNavIcon } from './nav-icons'
+export { BUILT_IN_PAGES } from './pages'
 export { THEME, PALETTE, RADIUS, SHADOW, SPACE, FONT } from './theme'
 
 export {
@@ -35,9 +39,8 @@ export {
   ExtensionRegistration,
   SystemConfig,
   SystemConfigSchemaEditor,
-  AppSectionNav,
-  NAV_ITEMS
+  AppSectionNav
 }
 
 /** Full Commerce Admin extension shell (router + Spectrum provider). */
-export { default as ConfigurationManagementApp } from './components/App'
+export { default as CommerceAdminManagementApp } from './components/App'

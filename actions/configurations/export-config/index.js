@@ -26,9 +26,10 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 const { Core } = require('@adobe/aio-sdk')
 const { errorResponse } = require('../../utils')
-const { getClient } = require('configuration-management/abdb')
-const { isEncrypted, decrypt } = require('configuration-management/crypto')
-const { getCommerceOauthClient } = require('configuration-management/oauth1a')
+const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
+const { isEncrypted, decrypt } = require('@adobedjangir/commerce-admin-management/crypto')
+const { readCommerceCreds, toClientShape } = require('../../commerce-creds')
+const { getCommerceOauthClient } = require('@adobedjangir/commerce-admin-management/oauth1a')
 
 const SCHEMA_COLLECTION = 'system_config_schema'
 const SCHEMA_DOC_ID = 'v1'
@@ -57,15 +58,11 @@ function deriveLanguageCode (code) {
  * ever run on the source.
  */
 async function fetchSourceStoreMappingsFromCommerce (params, logger) {
-  if (!params.COMMERCE_BASE_URL || !params.COMMERCE_CONSUMER_KEY) return null
+  const creds = await readCommerceCreds(params).catch(() => null)
+  const shape = toClientShape(creds)
+  if (!shape || !shape.url || !shape.consumerKey) return null
   try {
-    const oauth = getCommerceOauthClient({
-      url: params.COMMERCE_BASE_URL,
-      consumerKey: params.COMMERCE_CONSUMER_KEY,
-      consumerSecret: params.COMMERCE_CONSUMER_SECRET,
-      accessToken: params.COMMERCE_ACCESS_TOKEN,
-      accessTokenSecret: params.COMMERCE_ACCESS_TOKEN_SECRET
-    }, logger)
+    const oauth = getCommerceOauthClient(shape, logger)
     const [storeViews, websites] = await Promise.all([
       oauth.get('store/storeViews'),
       oauth.get('store/websites')

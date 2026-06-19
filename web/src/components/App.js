@@ -25,7 +25,14 @@ function App (props) {
           UNSAFE_className="sm-provider"
         >
           <Routes>
-            <Route index element={<ExtensionRegistration runtime={props.runtime} ims={props.ims} />} />
+            {/* Catch-all: every hash path renders the same shell. MainPage's
+                nav registry (getNavItems/getPageComponent) reads
+                location.pathname and chooses which page component to mount,
+                so React-Router only needs one route here. */}
+            <Route
+              path="*"
+              element={<ExtensionRegistration runtime={props.runtime} ims={props.ims} />}
+            />
           </Routes>
         </Provider>
       </HashRouter>

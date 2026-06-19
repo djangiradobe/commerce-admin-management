@@ -7,6 +7,9 @@ actions: .
 # Host App Builder apps override `web` to point at their UI shell (see README).
 web: ../../../../web-src
 runtimeManifest:
+  database:
+    auto-provision: true
+    region: emea
   packages:
     admin-ui-sdk:
       license: Apache-2.0
@@ -20,22 +23,26 @@ runtimeManifest:
           annotations:
             require-adobe-auth: true
             final: true
-    ConfigurationManagement:
+    CommerceAdminManagement:
       license: Apache-2.0
       actions:
+        # Commerce REST creds are NOT injected here — they live encrypted in
+        # ABDB and are loaded per-call by actions/commerce-creds.js.
         commerce-rest-get:
           function: commerce/index.js
           web: 'yes'
           runtime: 'nodejs:20'
           inputs:
             LOG_LEVEL: debug
-            COMMERCE_BASE_URL: $COMMERCE_BASE_URL
-            COMMERCE_CONSUMER_KEY: $COMMERCE_CONSUMER_KEY
-            COMMERCE_CONSUMER_SECRET: $COMMERCE_CONSUMER_SECRET
-            COMMERCE_ACCESS_TOKEN: $COMMERCE_ACCESS_TOKEN
-            COMMERCE_ACCESS_TOKEN_SECRET: $COMMERCE_ACCESS_TOKEN_SECRET
+            SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
+            OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            OAUTH_ORG_ID: $OAUTH_ORG_ID
+            OAUTH_SCOPES: $OAUTH_SCOPES
+            AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         system-config-list:
           function: system-config-list/index.js
@@ -96,11 +103,6 @@ runtimeManifest:
             OAUTH_ORG_ID: $OAUTH_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
-            COMMERCE_BASE_URL: $COMMERCE_BASE_URL
-            COMMERCE_CONSUMER_KEY: $COMMERCE_CONSUMER_KEY
-            COMMERCE_CONSUMER_SECRET: $COMMERCE_CONSUMER_SECRET
-            COMMERCE_ACCESS_TOKEN: $COMMERCE_ACCESS_TOKEN
-            COMMERCE_ACCESS_TOKEN_SECRET: $COMMERCE_ACCESS_TOKEN_SECRET
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -120,11 +122,6 @@ runtimeManifest:
             OAUTH_ORG_ID: $OAUTH_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
-            COMMERCE_BASE_URL: $COMMERCE_BASE_URL
-            COMMERCE_CONSUMER_KEY: $COMMERCE_CONSUMER_KEY
-            COMMERCE_CONSUMER_SECRET: $COMMERCE_CONSUMER_SECRET
-            COMMERCE_ACCESS_TOKEN: $COMMERCE_ACCESS_TOKEN
-            COMMERCE_ACCESS_TOKEN_SECRET: $COMMERCE_ACCESS_TOKEN_SECRET
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -135,16 +132,60 @@ runtimeManifest:
           runtime: 'nodejs:20'
           inputs:
             LOG_LEVEL: debug
+            SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
-            COMMERCE_BASE_URL: $COMMERCE_BASE_URL
-            COMMERCE_CONSUMER_KEY: $COMMERCE_CONSUMER_KEY
-            COMMERCE_CONSUMER_SECRET: $COMMERCE_CONSUMER_SECRET
-            COMMERCE_ACCESS_TOKEN: $COMMERCE_ACCESS_TOKEN
-            COMMERCE_ACCESS_TOKEN_SECRET: $COMMERCE_ACCESS_TOKEN_SECRET
+          annotations:
+            require-adobe-auth: false
+            include-ims-credentials: true
+            final: true
+        commerce-connection-status:
+          function: commerce-connection-status/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          inputs:
+            LOG_LEVEL: debug
+            SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
+            OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            OAUTH_ORG_ID: $OAUTH_ORG_ID
+            OAUTH_SCOPES: $OAUTH_SCOPES
+            AIO_DB_REGION: $AIO_DB_REGION
+          annotations:
+            require-adobe-auth: false
+            include-ims-credentials: true
+            final: true
+        commerce-connection-test:
+          function: commerce-connection-test/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          inputs:
+            LOG_LEVEL: debug
+            SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
+            OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            OAUTH_ORG_ID: $OAUTH_ORG_ID
+            OAUTH_SCOPES: $OAUTH_SCOPES
+            AIO_DB_REGION: $AIO_DB_REGION
+          annotations:
+            require-adobe-auth: false
+            include-ims-credentials: true
+            final: true
+        commerce-connection-save:
+          function: commerce-connection-save/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          inputs:
+            LOG_LEVEL: debug
+            SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
+            OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            OAUTH_ORG_ID: $OAUTH_ORG_ID
+            OAUTH_SCOPES: $OAUTH_SCOPES
+            AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true

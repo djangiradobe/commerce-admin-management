@@ -12,7 +12,7 @@ async function main () {
   try {
     esbuild = require('esbuild')
   } catch {
-    console.error('[configuration-management] esbuild is required to build the web UI. Run npm install in the package directory.')
+    console.error('[@adobedjangir/commerce-admin-management] esbuild is required to build the web UI. Run npm install in the package directory.')
     process.exit(1)
   }
 
@@ -41,16 +41,16 @@ async function main () {
   // Parcel does not resolve nested @import inside node_modules — ship a flat file.
   fs.copyFileSync(stylesSrc, stylesFlat)
 
-  console.log('[configuration-management] built web/dist/index.js')
+  console.log('[@adobedjangir/commerce-admin-management] built web/dist/index.js')
   if (fs.existsSync(path.join(outdir, 'index.css'))) {
-    console.log('[configuration-management] built web/dist/index.css')
+    console.log('[@adobedjangir/commerce-admin-management] built web/dist/index.css')
   }
-  console.log('[configuration-management] copied web/styles.css')
+  console.log('[@adobedjangir/commerce-admin-management] copied web/styles.css')
 }
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error('[configuration-management] build-web failed:', err.message)
+    console.error('[@adobedjangir/commerce-admin-management] build-web failed:', err.message)
     process.exit(1)
   })
 }

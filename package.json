@@ -1,6 +1,6 @@
 {
-  "name": "configuration-management",
-  "version": "0.1.12",
+  "name": "@adobedjangir/commerce-admin-management",
+  "version": "0.0.2",
   "description": "Schema-driven system configuration for Adobe Commerce App Builder sync apps. Magento-style scoped config in Adobe App Builder Database (ABDB) with encryption, Commerce REST helpers, and React Admin UI.",
   "license": "Apache-2.0",
   "author": "Adobe Inc.",
@@ -10,13 +10,13 @@
     "app-builder",
     "adobe-commerce",
     "magento",
-    "configuration-management",
+    "commerce-admin-management",
     "abdb",
     "react-spectrum"
   ],
   "main": "./src/index.js",
   "bin": {
-    "configuration-management-setup": "./scripts/setup.js"
+    "commerce-admin-management-setup": "./scripts/setup.js"
   },
   "scripts": {
     "build": "node ./scripts/build-web.js",
@@ -43,7 +43,8 @@
     "web",
     "actions",
     "scripts",
-    "README.md"
+    "README.md",
+    "DEVELOPER.md"
   ],
   "engines": {
     "node": ">=18"
@@ -64,16 +65,16 @@
     "react-router-dom": "^6.8.1"
   },
   "dependencies": {
-    "configuration-get-config": "^0.1.2",
+    "@adobedjangir/commerce-admin-get-config": "^0.0.1",
     "esbuild": "^0.25.12"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/djangiradobe/configuration-management.git",
-    "directory": "packages/configuration-management"
+    "url": "https://github.com/djangiradobe/commerce-admin-management.git",
+    "directory": "packages/commerce-admin-management"
   },
   "bugs": {
-    "url": "https://github.com/djangiradobe/configuration-management/issues"
+    "url": "https://github.com/djangiradobe/commerce-admin-management/issues"
   },
-  "homepage": "https://github.com/djangiradobe/configuration-management/tree/main/packages/configuration-management#readme"
+  "homepage": "https://github.com/djangiradobe/commerce-admin-management/tree/main/packages/commerce-admin-management#readme"
 }

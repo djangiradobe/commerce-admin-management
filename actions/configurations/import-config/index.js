@@ -33,10 +33,11 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 const { Core } = require('@adobe/aio-sdk')
 const { errorResponse } = require('../../utils')
-const { getClient } = require('configuration-management/abdb')
-const { isValidPath, toStateKey, normalizeScope, normalizeScopeId } = require('configuration-management/shared')
-const { getCommerceOauthClient } = require('configuration-management/oauth1a')
-const { isEncrypted, decrypt, encrypt } = require('configuration-management/crypto')
+const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
+const { isValidPath, toStateKey, normalizeScope, normalizeScopeId } = require('@adobedjangir/commerce-admin-management/shared')
+const { getCommerceOauthClient } = require('@adobedjangir/commerce-admin-management/oauth1a')
+const { isEncrypted, decrypt, encrypt } = require('@adobedjangir/commerce-admin-management/crypto')
+const { readCommerceCreds, toClientShape } = require('../../commerce-creds')
 
 const SCHEMA_COLLECTION = 'system_config_schema'
 const SCHEMA_DOC_ID = 'v1'
@@ -109,15 +110,11 @@ function deriveLanguageCode (code) {
  * Returns null if Commerce credentials are missing or the call fails.
  */
 async function fetchTargetStoreMappingsFromCommerce (params, logger) {
-  if (!params.COMMERCE_BASE_URL || !params.COMMERCE_CONSUMER_KEY) return null
+  const creds = await readCommerceCreds(params).catch(() => null)
+  const shape = toClientShape(creds)
+  if (!shape || !shape.url || !shape.consumerKey) return null
   try {
-    const oauth = getCommerceOauthClient({
-      url: params.COMMERCE_BASE_URL,
-      consumerKey: params.COMMERCE_CONSUMER_KEY,
-      consumerSecret: params.COMMERCE_CONSUMER_SECRET,
-      accessToken: params.COMMERCE_ACCESS_TOKEN,
-      accessTokenSecret: params.COMMERCE_ACCESS_TOKEN_SECRET
-    }, logger)
+    const oauth = getCommerceOauthClient(shape, logger)
     const [storeViews, websites] = await Promise.all([
       oauth.get('store/storeViews'),
       oauth.get('store/websites')

@@ -1,40 +1,39 @@
 /*
 Copyright 2025 Adobe. All rights reserved.
-This file is licensed to you under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License. You may obtain a copy
-of the License at http://www.apache.org/licenses/LICENSE-2.0
+Licensed under the Apache License, Version 2.0
 */
 
 import { useLocation, useNavigate } from 'react-router-dom'
-import Settings from '@spectrum-icons/workflow/Settings'
+import { getNavItems } from '../settings'
+import { getNavIcon } from '../nav-icons'
 
 /**
- * Top-level navigation. Add a new sync-entity tab by appending an entry here
- * and adding a matching render branch in MainPage.js. Styling lives in
- * index.css under `.sm-tab*`.
+ * Top-level navigation. Driven entirely by nav.json + configureWeb({ extraNav }).
+ * To add a tab: register a page in pages/ and add a matching entry to nav.json
+ * (or pass it via host configureWeb).
  */
-export const NAV_ITEMS = [
-  { key: '/',          label: 'System Configurations', Icon: Settings }
-]
-
-export default function AppSectionNav () {
+export default function AppSectionNav ({ rightSlot } = {}) {
   const navigate = useNavigate()
   const location = useLocation()
-  const activeKey = NAV_ITEMS.some((it) => it.key === location.pathname) ? location.pathname : '/'
+  const items = getNavItems()
+  const activeKey = items.some((it) => it.path === location.pathname)
+    ? location.pathname
+    : (items[0] && items[0].path) || '/'
 
   return (
     <div className="sm-tab-bar">
       <div className="sm-tab-bar__track" role="tablist" aria-label="Application sections">
-        {NAV_ITEMS.map(({ key, label, Icon }) => {
-          const active = key === activeKey
+        {items.map(({ id, path, label, icon }) => {
+          const Icon = getNavIcon(icon)
+          const active = path === activeKey
           return (
             <button
-              key={key}
+              key={id}
               type="button"
               role="tab"
               aria-selected={active}
               className={`sm-tab${active ? ' is-active' : ''}`}
-              onClick={() => { if (!active) navigate(key) }}
+              onClick={() => { if (!active) navigate(path) }}
             >
               <span className="sm-tab__icon">
                 <Icon size="XS" />
@@ -44,6 +43,7 @@ export default function AppSectionNav () {
           )
         })}
       </div>
+      {rightSlot ? <div className="sm-tab-bar__actions">{rightSlot}</div> : null}
     </div>
   )
 }

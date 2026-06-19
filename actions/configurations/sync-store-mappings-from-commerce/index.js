@@ -27,9 +27,9 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 const { Core } = require('@adobe/aio-sdk')
 const { errorResponse } = require('../../utils')
-const { getClient } = require('configuration-management/abdb')
-const { getCommerceOauthClient } = require('configuration-management/oauth1a')
-const { toStateKey } = require('configuration-management/shared')
+const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
+const { toStateKey } = require('@adobedjangir/commerce-admin-management/shared')
+const { getStoredCommerceOauthClient } = require('../../commerce-creds')
 
 const DATA_COLLECTION = 'system_config_data'
 const PATH = 'general/settings/store_mappings'
@@ -67,19 +67,7 @@ async function tryFindOne (collection, query) {
 }
 
 async function fetchCommerceData (params, logger) {
-  if (!params.COMMERCE_BASE_URL) {
-    throw new Error('COMMERCE_BASE_URL is not configured')
-  }
-  const oauth = getCommerceOauthClient(
-    {
-      url: params.COMMERCE_BASE_URL,
-      consumerKey: params.COMMERCE_CONSUMER_KEY,
-      consumerSecret: params.COMMERCE_CONSUMER_SECRET,
-      accessToken: params.COMMERCE_ACCESS_TOKEN,
-      accessTokenSecret: params.COMMERCE_ACCESS_TOKEN_SECRET
-    },
-    logger
-  )
+  const oauth = await getStoredCommerceOauthClient(params, logger)
   const [storeViews, websites] = await Promise.all([
     oauth.get('store/storeViews'),
     oauth.get('store/websites')
@@ -123,6 +111,9 @@ async function main (params) {
   try {
     commerce = await fetchCommerceData(params, logger)
   } catch (e) {
+    if (e.code === 'COMMERCE_NOT_CONFIGURED') {
+      return errorResponse(412, e.message, logger)
+    }
     logger.error(`Commerce REST failed: ${e.message}`)
     return errorResponse(500, `Commerce REST failed: ${e.message}`, logger)
   }

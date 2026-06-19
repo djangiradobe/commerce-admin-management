@@ -6,7 +6,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 */
 
 async function main () {
-    const extensionId = 'ConfigurationManagement'
+    const extensionId = 'CommerceAdminManagement'
 
     return {
         statusCode: 200,

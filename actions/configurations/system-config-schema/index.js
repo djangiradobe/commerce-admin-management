@@ -7,7 +7,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 const { Core } = require('@adobe/aio-sdk')
 const { errorResponse, checkMissingRequestInputs } = require('../../utils')
-const { getClient } = require('configuration-management/abdb')
+const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
 
 const COLLECTION = 'system_config_schema'
 const DOC_ID = 'v1'

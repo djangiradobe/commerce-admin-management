@@ -9,14 +9,14 @@ const {
   getConfig,
   clearAbdbConfigCache,
   COLLECTION: CONFIG_COLLECTION
-} = require('configuration-get-config/config')
+} = require('@adobedjangir/commerce-admin-get-config/config')
 
 module.exports = {
   getConfig,
   clearAbdbConfigCache,
   COLLECTION: CONFIG_COLLECTION,
-  ...require('configuration-get-config/abdb'),
-  ...require('configuration-get-config/shared'),
-  ...require('configuration-get-config/crypto'),
-  ...require('configuration-get-config/oauth1a')
+  ...require('@adobedjangir/commerce-admin-get-config/abdb'),
+  ...require('@adobedjangir/commerce-admin-get-config/shared'),
+  ...require('@adobedjangir/commerce-admin-get-config/crypto'),
+  ...require('@adobedjangir/commerce-admin-get-config/oauth1a')
 }

@@ -1,0 +1,10 @@
+{
+  "items": [
+    {
+      "id": "system-config",
+      "path": "/",
+      "label": "System Configurations",
+      "icon": "Settings"
+    }
+  ]
+}
