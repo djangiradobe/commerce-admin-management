@@ -441,6 +441,45 @@ function setupWebSrc (projectRoot) {
   return { changed, results }
 }
 
+/**
+ * Remove the aio `app init` boilerplate source directory for the
+ * dx/excshell/1 extension. We stripped its entry from app.config.yaml in
+ * patchAppConfig, but the matching scaffolded source tree at
+ * `src/dx-excshell-1/` is left behind. Delete it so its stale React-16
+ * code (with `react-error-boundary` default-import) doesn't get picked up
+ * by `aio app dev` or `npm install` peer-resolution.
+ */
+function stripExcshellSourceDir (projectRoot) {
+  const dir = path.join(projectRoot, 'src', 'dx-excshell-1')
+  const parent = path.join(projectRoot, 'src')
+  let changed = false
+
+  if (fs.existsSync(dir)) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true })
+      changed = true
+    } catch (err) {
+      return { changed: false, reason: `rm-failed: ${err.message}` }
+    }
+  }
+
+  // If src/ is now empty (or was never anything but dx-excshell-1) drop it
+  // too — leaving an empty src/ in the project root is just clutter. We
+  // never remove it when it still contains other files (the host's own
+  // code), so this is safe.
+  if (fs.existsSync(parent)) {
+    try {
+      const remaining = fs.readdirSync(parent).filter((n) => n !== '.DS_Store')
+      if (remaining.length === 0) {
+        fs.rmSync(parent, { recursive: true, force: true })
+        changed = true
+      }
+    } catch (_) { /* best effort */ }
+  }
+
+  return { changed, reason: changed ? 'removed' : 'absent' }
+}
+
 function setupAppConfig (projectRoot) {
   const appConfigPath = path.join(projectRoot, 'app.config.yaml')
   if (!fs.existsSync(appConfigPath)) {
@@ -475,6 +514,13 @@ function main () {
         'Run `npx @adobedjangir/commerce-admin-management-setup` from your project root after `aio app init`.'
     )
     return
+  }
+
+  // Strip the leftover aio dx/excshell/1 source scaffold before anything
+  // else — its stale React-16 code conflicts with our React-18 bundle.
+  const excshell = stripExcshellSourceDir(projectRoot)
+  if (excshell.changed) {
+    console.log('[@adobedjangir/commerce-admin-management] removed src/dx-excshell-1/ (replaced by commerce/backend-ui/1)')
   }
 
   const app = setupAppConfig(projectRoot)
