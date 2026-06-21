@@ -5,7 +5,7 @@ operations:
 # Action sources live alongside this manifest (same directory).
 actions: .
 # Host App Builder apps override `web` to point at their UI shell (see README).
-web: ../../../../web-src
+web: ../../../../../web-src
 runtimeManifest:
   database:
     auto-provision: true
