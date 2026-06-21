@@ -69,29 +69,56 @@ function updateExistingExtensionBlock (content) {
   return next !== content ? next : null
 }
 
+/**
+ * Remove the boilerplate `dx/excshell/1` extension block that aio's default
+ * `app init` ships with. The host can only run one extension point per
+ * project for our purposes, and `commerce/backend-ui/1` is what this
+ * package needs — leaving `dx/excshell/1` in place causes aio to try
+ * building BOTH, which fails on the excshell side because we don't ship
+ * any code for it.
+ *
+ * Matches a 2-space-indented `dx/excshell/1:` block followed by any
+ * deeper-indented nested lines, terminating when we see a non-indented
+ * line or a sibling extension. Safe to run repeatedly — no-op if absent.
+ */
+function stripExcshellBlock (content) {
+  const re = /^[ \t]*dx\/excshell\/1:[ \t]*\n(?:[ \t]+[^\n]*\n)*/m
+  if (!re.test(content)) return { content, changed: false }
+  const next = content.replace(re, '')
+  return { content: next, changed: true }
+}
+
 function patchAppConfig (content) {
-  if (alreadyLinked(content)) {
-    return { content, changed: false, reason: 'already-linked' }
+  // First strip the boilerplate dx/excshell/1 block — see stripExcshellBlock.
+  const excshell = stripExcshellBlock(content)
+  let working = excshell.content
+
+  if (alreadyLinked(working)) {
+    return {
+      content: working,
+      changed: excshell.changed,
+      reason: excshell.changed ? 'stripped-excshell' : 'already-linked'
+    }
   }
 
-  if (hasExtensionPoint(content)) {
-    const updated = updateExistingExtensionBlock(content)
+  if (hasExtensionPoint(working)) {
+    const updated = updateExistingExtensionBlock(working)
     if (updated) {
       return { content: updated, changed: true, reason: 'updated-existing-extension' }
     }
-    return { content, changed: false, reason: 'extension-exists-unmodified' }
+    return { content: working, changed: excshell.changed, reason: 'extension-exists-unmodified' }
   }
 
-  if (/^extensions:[ \t]*\n/m.test(content)) {
+  if (/^extensions:[ \t]*\n/m.test(working)) {
     const injection = `  ${EXTENSION_POINT}:\n    $include: ${INCLUDE_REL}\n`
-    const next = content.replace(/^extensions:[ \t]*\n/m, `extensions:\n${injection}`)
-    if (next !== content) {
+    const next = working.replace(/^extensions:[ \t]*\n/m, `extensions:\n${injection}`)
+    if (next !== working) {
       return { content: next, changed: true, reason: 'added-under-extensions' }
     }
   }
 
-  if (!/^extensions:/m.test(content)) {
-    const trimmed = content.replace(/\s+$/, '')
+  if (!/^extensions:/m.test(working)) {
+    const trimmed = working.replace(/\s+$/, '')
     const separator = trimmed.length > 0 ? '\n\n' : ''
     return {
       content: `${trimmed}${separator}${buildExtensionBlock()}\n`,
@@ -100,7 +127,7 @@ function patchAppConfig (content) {
     }
   }
 
-  return { content, changed: false, reason: 'no-change' }
+  return { content: working, changed: excshell.changed, reason: excshell.changed ? 'stripped-excshell' : 'no-change' }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
