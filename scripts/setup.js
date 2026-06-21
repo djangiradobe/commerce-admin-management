@@ -369,19 +369,17 @@ function indexHtmlContents () {
 }
 
 function excRuntimeContents () {
-  // Minimal exc-runtime shim — the package's bootstrap requires it. aio's
-  // template ships a similar file. We keep this thin so it stays current
-  // even if Adobe's exc-runtime evolves; the meaningful glue lives in
-  // index.js (also scaffolded by this script).
+  // exc-runtime.js's only job is to side-effect-import the Adobe Experience
+  // Cloud Shell runtime so the bootstrap can call init(...) afterwards.
+  // The bootstrap wraps `require('./exc-runtime')` in try/catch — if this
+  // import fails (e.g. when running outside the shell) bootstrapRaw() takes
+  // over. So this file is intentionally minimal.
   return `/*
 Copyright 2025 Adobe. All rights reserved.
 Licensed under the Apache License, Version 2.0
 */
 
-// Loaded by index.js when running inside the Adobe Experience Cloud Shell.
-// Pulls in the @adobe/exc-app runtime which the bootstrap then initialises.
-import '@adobe/exc-app/page'
-import '@adobe/exc-app/page/Page'
+import '@adobe/exc-app'
 `
 }
 
