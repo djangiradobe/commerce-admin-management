@@ -1,6 +1,6 @@
 {
   "name": "@adobedjangir/commerce-admin-management",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Schema-driven system configuration for Adobe Commerce App Builder sync apps. Magento-style scoped config in Adobe App Builder Database (ABDB) with encryption, Commerce REST helpers, and React Admin UI.",
   "license": "Apache-2.0",
   "author": "Adobe Inc.",
@@ -65,9 +65,15 @@
     "react-router-dom": ">=6.0.0"
   },
   "peerDependenciesMeta": {
-    "@adobe/aio-lib-core-auth": { "optional": false },
-    "@adobe/aio-lib-db": { "optional": false },
-    "@adobe/aio-lib-ims": { "optional": false }
+    "@adobe/aio-lib-core-auth": {
+      "optional": false
+    },
+    "@adobe/aio-lib-db": {
+      "optional": false
+    },
+    "@adobe/aio-lib-ims": {
+      "optional": false
+    }
   },
   "dependencies": {
     "@adobedjangir/commerce-admin-get-config": "^0.0.1",
