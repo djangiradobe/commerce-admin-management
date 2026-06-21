@@ -59,10 +59,10 @@
     "@adobe/uix-guest": ">=0.8.0",
     "@spectrum-icons/workflow": ">=3.0.0 <5.0.0",
     "dotenv": ">=16.0.0",
-    "react": ">=18.0.0",
-    "react-dom": ">=18.0.0",
-    "react-error-boundary": ">=3.1.0",
-    "react-router-dom": ">=6.0.0"
+    "react": "^16.13.1",
+    "react-dom": "^16.13.1",
+    "react-error-boundary": "^1.2.5",
+    "react-router-dom": "^6.26.2"
   },
   "peerDependenciesMeta": {
     "@adobe/aio-lib-core-auth": {
