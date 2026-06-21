@@ -347,20 +347,70 @@ function writeBootstrap (filePath, contents) {
   return { changed: true, reason: 'written' }
 }
 
+function indexHtmlContents () {
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
+    <meta name="theme-color" content="#1473e6" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
+    <title>Commerce Admin Management</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <script src="./src/index.js" async type="module"></script>
+  </body>
+</html>
+`
+}
+
+function excRuntimeContents () {
+  // Minimal exc-runtime shim — the package's bootstrap requires it. aio's
+  // template ships a similar file. We keep this thin so it stays current
+  // even if Adobe's exc-runtime evolves; the meaningful glue lives in
+  // index.js (also scaffolded by this script).
+  return `/*
+Copyright 2025 Adobe. All rights reserved.
+Licensed under the Apache License, Version 2.0
+*/
+
+// Loaded by index.js when running inside the Adobe Experience Cloud Shell.
+// Pulls in the @adobe/exc-app runtime which the bootstrap then initialises.
+import '@adobe/exc-app/page'
+import '@adobe/exc-app/page/Page'
+`
+}
+
+function faviconSvgContents () {
+  // Inline SVG gear — small enough to inline, doesn't pull in a binary asset.
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#1473e6">
+  <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94 0 .31.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+</svg>
+`
+}
+
 function setupWebSrc (projectRoot) {
-  const webSrcDir = path.join(projectRoot, 'web-src', 'src')
-  const hasShell = fs.existsSync(path.join(projectRoot, 'web-src'))
-  if (!hasShell) {
-    return { changed: false, reason: 'no-web-src' }
-  }
+  const webSrcRoot = path.join(projectRoot, 'web-src')
+  const webSrcDir = path.join(webSrcRoot, 'src')
+  // No longer bail when the directory is missing — create it. Fresh aio
+  // app templates without a backend-ui extension don't ship a web-src/,
+  // and our package depends on one.
+  ensureDir(webSrcDir)
 
   const results = {
-    bootstrap: writeBootstrap(path.join(webSrcDir, 'index.js'), bootstrapContents()),
-    nav: writeIfMissing(path.join(webSrcDir, 'nav.json'), navJsonContents()),
-    pages: writeIfMissing(path.join(webSrcDir, 'pages', 'index.js'), pagesIndexContents()),
+    html:       writeIfMissing(path.join(webSrcRoot, 'index.html'),        indexHtmlContents()),
+    favicon:    writeIfMissing(path.join(webSrcRoot, 'favicon.svg'),       faviconSvgContents()),
+    excRuntime: writeIfMissing(path.join(webSrcDir, 'exc-runtime.js'),     excRuntimeContents()),
+    bootstrap:  writeBootstrap(path.join(webSrcDir, 'index.js'),           bootstrapContents()),
+    nav:        writeIfMissing(path.join(webSrcDir, 'nav.json'),           navJsonContents()),
+    pages:      writeIfMissing(path.join(webSrcDir, 'pages', 'index.js'),  pagesIndexContents()),
     // Default starter page — only created on first install, never overwritten,
     // and never auto-removed even if the dev deletes the registry entry.
-    welcome: writeIfMissing(path.join(webSrcDir, 'pages', 'Welcome.js'), welcomePageContents())
+    welcome:    writeIfMissing(path.join(webSrcDir, 'pages', 'Welcome.js'), welcomePageContents())
   }
   const changed = Object.values(results).some((r) => r.changed)
   return { changed, results }
