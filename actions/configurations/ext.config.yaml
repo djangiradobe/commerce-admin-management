@@ -36,9 +36,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
@@ -52,9 +56,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
@@ -68,9 +76,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
@@ -83,9 +95,13 @@ runtimeManifest:
           inputs:
             LOG_LEVEL: debug
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
@@ -99,9 +115,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
@@ -118,9 +138,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
@@ -134,9 +158,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
@@ -150,9 +178,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
@@ -166,9 +198,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
@@ -182,9 +218,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
+            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
+            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false

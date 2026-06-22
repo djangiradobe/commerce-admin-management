@@ -655,6 +655,62 @@ function ensureHostDeps (projectRoot) {
  *
  * Returns { changed, set: [{key, source}], file }.
  */
+/**
+ * Mirror IMS_OAUTH_S2S_* → OAUTH_* in the host's .env. Newer Adobe Developer
+ * Console templates use the IMS_OAUTH_S2S_ prefix; our actions still read
+ * the legacy OAUTH_ names. We append aliases so both work — only when
+ * IMS_OAUTH_S2S_* is set and OAUTH_* isn't. Idempotent: re-running won't
+ * duplicate the block (we identify our own mirror block by its comment).
+ */
+function mirrorImsOauthAliases (projectRoot) {
+  const envPath = path.join(projectRoot, '.env')
+  if (!fs.existsSync(envPath)) return { changed: false, reason: 'no-env' }
+  let env = ''
+  try { env = fs.readFileSync(envPath, 'utf8') } catch (_) { return { changed: false, reason: 'unreadable' } }
+
+  const grab = (k) => {
+    const m = env.match(new RegExp('^' + k + '=(.*)$', 'm'))
+    return m ? m[1] : ''
+  }
+  const id  = grab('IMS_OAUTH_S2S_CLIENT_ID')
+  const sec = grab('IMS_OAUTH_S2S_CLIENT_SECRET')
+  const org = grab('IMS_OAUTH_S2S_ORG_ID')
+  let scopes = grab('IMS_OAUTH_S2S_SCOPES')
+
+  if (!id || !sec || !org) return { changed: false, reason: 'ims-vars-missing' }
+
+  // SCOPES is often a JSON array; the action expects a comma-separated string.
+  if (scopes.trim().startsWith('[')) {
+    try { scopes = JSON.parse(scopes).join(', ') } catch (_) { /* leave as-is */ }
+  }
+
+  // If OAUTH_* already non-empty, leave the user's values alone.
+  const existing = {
+    OAUTH_CLIENT_ID:     grab('OAUTH_CLIENT_ID'),
+    OAUTH_CLIENT_SECRET: grab('OAUTH_CLIENT_SECRET'),
+    OAUTH_ORG_ID:        grab('OAUTH_ORG_ID'),
+    OAUTH_SCOPES:        grab('OAUTH_SCOPES')
+  }
+  const anyMissing = Object.values(existing).some((v) => !v)
+  if (!anyMissing) return { changed: false, reason: 'already-aliased' }
+
+  // Strip any previously-mirrored block so re-runs don't accumulate.
+  env = env.replace(/\n# Aliases mirrored from IMS_OAUTH_S2S_\*[\s\S]*?(?=\n[A-Z_]+=|\n*$)/g, '')
+
+  const block = [
+    '',
+    '# Aliases mirrored from IMS_OAUTH_S2S_* — required by the commerce-admin-management actions.',
+    `OAUTH_CLIENT_ID=${id}`,
+    `OAUTH_CLIENT_SECRET=${sec}`,
+    `OAUTH_ORG_ID=${org}`,
+    `OAUTH_SCOPES=${scopes}`,
+    ''
+  ].join('\n')
+
+  fs.writeFileSync(envPath, env + block, 'utf8')
+  return { changed: true }
+}
+
 function ensureEnvDefaults (projectRoot) {
   const envPath = path.join(projectRoot, '.env')
   let lines = []
@@ -781,6 +837,12 @@ function main () {
     for (const s of env.set) {
       console.log(`[@adobedjangir/commerce-admin-management] .env ${s.source}: ${s.key}`)
     }
+  }
+  // Newer Adobe Developer Console templates use IMS_OAUTH_S2S_* prefix in
+  // .env. Our actions still read OAUTH_*. Mirror automatically so both work.
+  const mirror = mirrorImsOauthAliases(projectRoot)
+  if (mirror.changed) {
+    console.log('[@adobedjangir/commerce-admin-management] .env mirrored IMS_OAUTH_S2S_* → OAUTH_*')
   }
 
   // Bump host package.json so React-18 + Spectrum-4 peers are satisfied
