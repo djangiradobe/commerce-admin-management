@@ -553,6 +553,35 @@ function satisfiesFloor (currentSpec, floorSpec) {
   return compareVersions(cur, min) >= 0
 }
 
+/**
+ * Re-run `npm install` after bumping host package.json so the upgraded
+ * versions actually land in node_modules. Without this, the consumer
+ * would have to run `npm install` manually after our postinstall.
+ *
+ * Recursion is prevented by setting COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP=1
+ * in the child npm's env — main() bails immediately when it sees that
+ * flag, so the inner install doesn't loop back through this code.
+ *
+ * Failures here don't throw — we print a fallback hint and let the
+ * outer install report success. The consumer can re-run `npm install`
+ * manually if our auto-invocation can't reach the network.
+ */
+function autoRunNpmInstall (projectRoot) {
+  const { execSync } = require('child_process')
+  console.log('[@adobedjangir/commerce-admin-management] running `npm install` to apply the bumped versions…')
+  try {
+    execSync('npm install --no-audit --no-fund --silent --legacy-peer-deps', {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      env: { ...process.env, COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP: '1' }
+    })
+    console.log('[@adobedjangir/commerce-admin-management] dependency upgrade complete ✓')
+  } catch (e) {
+    console.warn('[@adobedjangir/commerce-admin-management] auto-install failed. Run `npm install` manually.')
+    console.warn(`  reason: ${e.message}`)
+  }
+}
+
 function ensureHostDeps (projectRoot) {
   const pkgPath = path.join(projectRoot, 'package.json')
   if (!fs.existsSync(pkgPath)) {
@@ -606,9 +635,12 @@ function setupAppConfig (projectRoot) {
 }
 
 function main () {
-  if (process.env.CONFIGURATION_MANAGEMENT_SKIP_SETUP === '1') {
-    return
-  }
+  // Two opt-outs:
+  //   - CONFIGURATION_MANAGEMENT_SKIP_SETUP: legacy name kept for compat.
+  //   - COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP: set by autoRunNpmInstall to
+  //     prevent the recursive postinstall from re-running this code.
+  if (process.env.CONFIGURATION_MANAGEMENT_SKIP_SETUP === '1') return
+  if (process.env.COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP === '1') return
 
   const projectRoot = resolveProjectRoot()
   if (!projectRoot) {
@@ -628,16 +660,20 @@ function main () {
 
   // Bump host package.json so React-18 + Spectrum-4 peers are satisfied
   // without the consumer running a long `npm install --save react@^18 ...`
-  // chant. They still need to run `npm install` once more for npm to
-  // resolve the new versions — we can't safely re-shell-out to npm from
-  // inside a postinstall.
+  // chant. If anything was bumped, automatically re-run npm install so the
+  // new versions actually land in node_modules. A guard env var prevents
+  // the recursive postinstall from re-running this step.
   const deps = ensureHostDeps(projectRoot)
   if (deps.changed) {
     console.log('[@adobedjangir/commerce-admin-management] bumped host package.json:')
     for (const b of deps.bumped) {
       console.log(`  • ${b.name}: ${b.was} → ${b.now}`)
     }
-    console.log('[@adobedjangir/commerce-admin-management] run `npm install` once more to apply the upgrades.')
+    if (process.env.COMMERCE_ADMIN_MANAGEMENT_NO_AUTO_INSTALL === '1') {
+      console.log('[@adobedjangir/commerce-admin-management] auto-install disabled; run `npm install` to apply.')
+    } else {
+      autoRunNpmInstall(projectRoot)
+    }
   }
 
   const app = setupAppConfig(projectRoot)

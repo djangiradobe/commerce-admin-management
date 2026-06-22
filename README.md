@@ -40,6 +40,7 @@ and an extension point for host apps to add their own pages and actions.
 | App Builder Database (ABDB) auto-provisioning on deploy | `ext.config.yaml` |
 | Host-extensible nav and pages | `configureWeb({ extraNav, extraPages })` |
 | Auto-scaffolded host scaffold on `npm install` | `scripts/setup.js` (postinstall hook) |
+| Auto-bump host React/Spectrum/Adobe deps to React-18 floor | `scripts/setup.js` mutates host `package.json` |
 
 ---
 
@@ -50,14 +51,15 @@ and an extension point for host apps to add their own pages and actions.
 aio app init my-commerce-admin
 cd my-commerce-admin
 
-# 2. Install the package — postinstall scaffolds everything
+# 2. Install. The postinstall bumps the host's package.json to the
+#    React 18 / Spectrum 4 floor and re-runs `npm install` automatically.
 npm install @adobedjangir/commerce-admin-management
 
 # 3. Fill in .env (see required values below)
 cp env.dist .env
 $EDITOR .env
 
-# 4. Deploy. ABDB is auto-provisioned; 11 actions + web assets ship to CDN.
+# 4. Deploy. ABDB is auto-provisioned; actions + web assets ship to CDN.
 aio app deploy
 ```
 
