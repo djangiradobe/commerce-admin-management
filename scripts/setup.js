@@ -230,13 +230,29 @@ configureWeb({
 
 window.React = React
 
+// Mount strategy:
+//   - If we're inside the Experience Cloud Shell iframe, init(...) installs a
+//     ready-listener that the shell pings within ~100ms. bootstrapInExcShell
+//     renders with the IMS context.
+//   - If we're on the raw CDN URL (no shell), init(...) still completes but
+//     the ready event never arrives. We race a 2-second timer and fall back
+//     to bootstrapRaw so React still mounts.
+let booted = false
+function boot (fn) {
+  if (booted) return
+  booted = true
+  fn()
+}
+
 try {
   require('./exc-runtime')
   init(bootstrapInExcShell)
 } catch (e) {
   console.log('application not running in Adobe Experience Cloud Shell')
-  bootstrapRaw()
+  boot(bootstrapRaw)
 }
+// Safety net: shell never sent 'ready' → mount raw so the page isn't blank.
+setTimeout(() => boot(bootstrapRaw), 2000)
 
 function renderApp (runtime, ims) {
   createRoot(document.getElementById('root')).render(
@@ -254,11 +270,11 @@ function bootstrapInExcShell () {
 
   runtime.on('ready', ({ imsOrg, imsToken, imsProfile }) => {
     runtime.done()
-    renderApp(runtime, {
+    boot(() => renderApp(runtime, {
       profile: imsProfile,
       org: imsOrg,
       token: imsToken
-    })
+    }))
   })
 
   runtime.solution = {
