@@ -496,6 +496,93 @@ function stripExcshellSourceDir (projectRoot) {
   return { changed, reason: changed ? 'removed' : 'absent' }
 }
 
+/**
+ * Bump the host's package.json so the React 18 / Spectrum 4 stack we
+ * depend on is satisfied without the consumer running a long
+ * `npm install --save react@^18 …` chant. We declare these as peers (to
+ * avoid shipping duplicate React copies) but a fresh `aio app init` host
+ * still pins React 16 — so we patch the host's declared versions here.
+ *
+ * Strategy:
+ *   - Only touch entries that are MISSING or pin a version below our floor.
+ *   - Leave entries already satisfying the floor alone (don't downgrade).
+ *   - We mutate package.json only; the next `npm install` actually applies
+ *     the upgrade. We don't re-shell-out to npm from a postinstall — that
+ *     causes recursive installs and is fragile in workspaces / monorepos.
+ */
+const REQUIRED_HOST_DEPS = {
+  // React + DOM — package code uses createRoot/react-dom/client (React 18+).
+  'react':                       '^18.3.1',
+  'react-dom':                   '^18.3.1',
+  // React-error-boundary v4 dropped the default export the older versions
+  // shipped; we use named imports so v4 is the floor.
+  'react-error-boundary':        '^4.0.0',
+  'react-router-dom':            '^6.26.2',
+  // Adobe Spectrum trio — must be React-18 compatible.
+  '@adobe/react-spectrum':       '^3.47.0',
+  '@spectrum-icons/workflow':    '^4.2.4',
+  '@spectrum-icons/ui':          '^3.7.1',
+  // Adobe app runtime + helpers used by the bootstrap and actions.
+  '@adobe/exc-app':              '^1.6.0',
+  '@adobe/uix-guest':            '^0.8.3',
+  '@adobe/aio-sdk':              '^6.0.0'
+}
+
+// Parse a semver-ish version specifier ("^18.3.1", ">=3.0.0", "16.14.0",
+// "16.14.0 || >=18") and return the lowest concrete major.minor.patch it
+// could resolve to. Returns null for non-numeric specs we can't reason
+// about (workspace:*, file:..., git URLs) — those we leave alone.
+function lowestVersion (spec) {
+  if (!spec || typeof spec !== 'string') return null
+  const s = spec.split('||')[0].trim() // take the first range in an OR list
+  const m = s.match(/(\d+)\.(\d+)\.(\d+)/)
+  if (!m) return null
+  return { major: +m[1], minor: +m[2], patch: +m[3] }
+}
+
+function compareVersions (a, b) {
+  if (a.major !== b.major) return a.major - b.major
+  if (a.minor !== b.minor) return a.minor - b.minor
+  return a.patch - b.patch
+}
+
+function satisfiesFloor (currentSpec, floorSpec) {
+  const cur = lowestVersion(currentSpec)
+  const min = lowestVersion(floorSpec)
+  if (!cur || !min) return false
+  return compareVersions(cur, min) >= 0
+}
+
+function ensureHostDeps (projectRoot) {
+  const pkgPath = path.join(projectRoot, 'package.json')
+  if (!fs.existsSync(pkgPath)) {
+    return { changed: false, reason: 'no-package-json' }
+  }
+  let pkg
+  try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) } catch (_) {
+    return { changed: false, reason: 'unreadable-package-json' }
+  }
+  pkg.dependencies = pkg.dependencies || {}
+
+  const bumped = []
+  for (const [name, floor] of Object.entries(REQUIRED_HOST_DEPS)) {
+    const declared = pkg.dependencies[name] || (pkg.devDependencies && pkg.devDependencies[name])
+    if (declared && satisfiesFloor(declared, floor)) continue
+    // Move it to dependencies (out of devDependencies if it was there) and
+    // set to the floor.
+    pkg.dependencies[name] = floor
+    if (pkg.devDependencies && pkg.devDependencies[name]) {
+      delete pkg.devDependencies[name]
+    }
+    bumped.push({ name, was: declared || '(missing)', now: floor })
+  }
+
+  if (bumped.length === 0) return { changed: false, reason: 'already-satisfies' }
+
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8')
+  return { changed: true, bumped }
+}
+
 function setupAppConfig (projectRoot) {
   const appConfigPath = path.join(projectRoot, 'app.config.yaml')
   if (!fs.existsSync(appConfigPath)) {
@@ -537,6 +624,20 @@ function main () {
   const excshell = stripExcshellSourceDir(projectRoot)
   if (excshell.changed) {
     console.log('[@adobedjangir/commerce-admin-management] removed src/dx-excshell-1/ (replaced by commerce/backend-ui/1)')
+  }
+
+  // Bump host package.json so React-18 + Spectrum-4 peers are satisfied
+  // without the consumer running a long `npm install --save react@^18 ...`
+  // chant. They still need to run `npm install` once more for npm to
+  // resolve the new versions — we can't safely re-shell-out to npm from
+  // inside a postinstall.
+  const deps = ensureHostDeps(projectRoot)
+  if (deps.changed) {
+    console.log('[@adobedjangir/commerce-admin-management] bumped host package.json:')
+    for (const b of deps.bumped) {
+      console.log(`  • ${b.name}: ${b.was} → ${b.now}`)
+    }
+    console.log('[@adobedjangir/commerce-admin-management] run `npm install` once more to apply the upgrades.')
   }
 
   const app = setupAppConfig(projectRoot)
