@@ -591,25 +591,140 @@ function ensureHostDeps (projectRoot) {
   try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) } catch (_) {
     return { changed: false, reason: 'unreadable-package-json' }
   }
-  pkg.dependencies = pkg.dependencies || {}
 
+  // Decide which deps need bumping by reading the current package.json.
   const bumped = []
   for (const [name, floor] of Object.entries(REQUIRED_HOST_DEPS)) {
-    const declared = pkg.dependencies[name] || (pkg.devDependencies && pkg.devDependencies[name])
+    const declared = (pkg.dependencies && pkg.dependencies[name]) ||
+                     (pkg.devDependencies && pkg.devDependencies[name])
     if (declared && satisfiesFloor(declared, floor)) continue
-    // Move it to dependencies (out of devDependencies if it was there) and
-    // set to the floor.
-    pkg.dependencies[name] = floor
-    if (pkg.devDependencies && pkg.devDependencies[name]) {
-      delete pkg.devDependencies[name]
-    }
     bumped.push({ name, was: declared || '(missing)', now: floor })
   }
 
   if (bumped.length === 0) return { changed: false, reason: 'already-satisfies' }
 
-  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8')
+  // Persist via `npm pkg set` rather than fs.writeFileSync. The outer
+  // `npm install <pkg>` keeps a buffered copy of package.json that it
+  // writes at the very end of the install (to add the package itself
+  // as a dependency) — that write clobbers anything we'd done via
+  // fs.writeFileSync. `npm pkg set` goes through npm's own metadata
+  // layer and persists across that final write.
+  const { execSync } = require('child_process')
+  const args = bumped
+    .map((b) => `dependencies.${b.name}=${b.now}`)
+    // Some keys contain "@" which `npm pkg set` accepts unquoted; we
+    // shell-quote the whole assignment to be safe.
+    .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
+    .join(' ')
+  try {
+    execSync(`npm pkg set ${args}`, {
+      cwd: projectRoot,
+      stdio: 'pipe',
+      env: { ...process.env, COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP: '1' }
+    })
+  } catch (e) {
+    return { changed: false, reason: `npm-pkg-set-failed: ${e.message}` }
+  }
+
+  // Also remove from devDependencies so the bumped value in dependencies
+  // is the only spec npm will see on the next resolution.
+  const inDev = bumped.filter((b) => pkg.devDependencies && pkg.devDependencies[b.name])
+  if (inDev.length) {
+    const delArgs = inDev.map((b) => `'devDependencies.${b.name}'`).join(' ')
+    try {
+      execSync(`npm pkg delete ${delArgs}`, {
+        cwd: projectRoot,
+        stdio: 'pipe',
+        env: { ...process.env, COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP: '1' }
+      })
+    } catch (_) { /* non-fatal */ }
+  }
+
   return { changed: true, bumped }
+}
+
+/**
+ * Seed the host's .env with the two values our actions can't run without:
+ *   - AIO_DB_REGION   defaults to "emea" (override after install if needed)
+ *   - SYSTEM_CONFIG_CRYPT_KEY   freshly generated AES-256 key, base64-encoded
+ *
+ * Never overwrites an existing value. The crypt key in particular must
+ * remain stable for the life of the workspace — rotating it makes every
+ * encrypted value already in ABDB undecryptable. So we only write it
+ * when the key is missing or empty.
+ *
+ * Returns { changed, set: [{key, source}], file }.
+ */
+function ensureEnvDefaults (projectRoot) {
+  const envPath = path.join(projectRoot, '.env')
+  let lines = []
+  let existed = false
+  if (fs.existsSync(envPath)) {
+    existed = true
+    try {
+      lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/)
+    } catch (_) {
+      return { changed: false, set: [], file: envPath, reason: 'unreadable' }
+    }
+  }
+
+  // Read current values (ignore comments + blanks). Treat KEY=  (empty)
+  // as missing so a half-stubbed .env still gets populated.
+  const current = new Map()
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const eq = line.indexOf('=')
+    if (eq === -1) continue
+    const k = line.slice(0, eq).trim()
+    const v = line.slice(eq + 1).trim()
+    if (k) current.set(k, v)
+  }
+
+  const set = []
+  const defaults = [
+    { key: 'AIO_DB_REGION',           value: 'emea',
+      comment: '# App Builder Database region — one of: amer | emea | apac | aus' },
+    { key: 'SYSTEM_CONFIG_CRYPT_KEY', value: () => require('crypto').randomBytes(32).toString('base64'),
+      comment: '# AES-256 master key for at-rest encryption.\n# DO NOT rotate — values already in ABDB become undecryptable if you do.\n# Auto-generated on install; back this up like a database password.' }
+  ]
+
+  // Build additions for keys that are missing OR empty.
+  const additions = []
+  for (const def of defaults) {
+    const cur = current.get(def.key)
+    if (cur && cur !== '' && cur !== '""' && cur !== "''") continue
+    const v = typeof def.value === 'function' ? def.value() : def.value
+    additions.push({ key: def.key, value: v, comment: def.comment })
+    set.push({ key: def.key, source: cur === undefined ? 'added' : 'filled-empty' })
+  }
+
+  if (additions.length === 0) return { changed: false, set: [], file: envPath }
+
+  // If the file existed, we either replace empty assignments in place
+  // (preserves user comments / ordering) or append at the bottom.
+  let next = existed ? lines.slice() : []
+  for (const add of additions) {
+    const cur = current.get(add.key)
+    if (cur === '' || cur === '""' || cur === "''") {
+      // Replace the empty line in place.
+      for (let i = 0; i < next.length; i++) {
+        const trimmed = next[i].trim()
+        if (trimmed.startsWith(add.key + '=') || trimmed.startsWith(add.key + ' =')) {
+          next[i] = `${add.key}=${add.value}`
+          break
+        }
+      }
+    } else {
+      // Append.
+      if (next.length && next[next.length - 1].trim() !== '') next.push('')
+      next.push(add.comment)
+      next.push(`${add.key}=${add.value}`)
+    }
+  }
+
+  fs.writeFileSync(envPath, next.join('\n') + (next[next.length - 1] === '' ? '' : '\n'), 'utf8')
+  return { changed: true, set, file: envPath, existed }
 }
 
 function setupAppConfig (projectRoot) {
@@ -656,6 +771,16 @@ function main () {
   const excshell = stripExcshellSourceDir(projectRoot)
   if (excshell.changed) {
     console.log('[@adobedjangir/commerce-admin-management] removed src/dx-excshell-1/ (replaced by commerce/backend-ui/1)')
+  }
+
+  // Seed .env with AIO_DB_REGION + SYSTEM_CONFIG_CRYPT_KEY so the consumer
+  // doesn't have to. Never overwrites an existing crypt key — see
+  // ensureEnvDefaults for why.
+  const env = ensureEnvDefaults(projectRoot)
+  if (env.changed) {
+    for (const s of env.set) {
+      console.log(`[@adobedjangir/commerce-admin-management] .env ${s.source}: ${s.key}`)
+    }
   }
 
   // Bump host package.json so React-18 + Spectrum-4 peers are satisfied
