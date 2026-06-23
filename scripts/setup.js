@@ -891,8 +891,13 @@ if (require.main === module) {
   try {
     main()
   } catch (err) {
-    console.error('[@adobedjangir/commerce-admin-management] setup failed:', err.message)
-    process.exitCode = 1
+    // Never fail the npm install on a scaffold problem — the package
+    // itself is fine, the consumer can always re-run
+    // `npx @adobedjangir/commerce-admin-management-setup` later.
+    console.error(
+      '[@adobedjangir/commerce-admin-management] setup encountered an error ' +
+      '(install will continue):', err.message
+    )
   }
 }
 
