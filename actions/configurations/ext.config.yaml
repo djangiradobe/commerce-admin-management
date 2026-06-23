@@ -46,7 +46,6 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true
         system-config-list:
           function: system-config-list/index.js
@@ -66,7 +65,6 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true
         system-config-save:
           function: system-config-save/index.js
@@ -86,7 +84,6 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true
         system-config-schema:
           function: system-config-schema/index.js
@@ -105,7 +102,6 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true
         export-config:
           function: export-config/index.js
@@ -125,7 +121,6 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true
         import-config:
           function: import-config/index.js
@@ -148,7 +143,6 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true
         sync-store-mappings-from-commerce:
           function: sync-store-mappings-from-commerce/index.js
@@ -168,7 +162,6 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true
         commerce-connection-status:
           function: commerce-connection-status/index.js
@@ -188,7 +181,6 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true
         commerce-connection-test:
           function: commerce-connection-test/index.js
@@ -208,7 +200,6 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true
         commerce-connection-save:
           function: commerce-connection-save/index.js
@@ -228,5 +219,4 @@ runtimeManifest:
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
-            include-ims-credentials: true
             final: true

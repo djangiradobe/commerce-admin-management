@@ -113,7 +113,18 @@ async function readCommerceCreds (params, { fresh = false } = {}) {
     }
     let raw = doc.value
     if (isEncrypted(raw)) {
-      raw = decrypt(raw, params)
+      try {
+        raw = decrypt(raw, params)
+      } catch (e) {
+        // AES-GCM auth-tag mismatch — almost always SYSTEM_CONFIG_CRYPT_KEY
+        // rotated since the value was sealed. Treat the doc as unreadable
+        // so MainPage shows the Commerce wizard instead of crashing the UI.
+        // The operator can re-enter creds; the wizard will overwrite the
+        // doc with a value encrypted under the current key.
+        credsCache = null
+        credsCacheAt = now
+        return null
+      }
     }
     let parsed
     try {
