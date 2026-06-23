@@ -55,7 +55,9 @@ cd my-commerce-admin
 
 # 2. Install with --legacy-peer-deps on first install.
 #    aio's default template pins React 16; this package requires React 18.
-npm install @adobedjangir/commerce-admin-management
+npm install --save \
+  @adobedjangir/commerce-admin-management@latest \
+  @adobedjangir/commerce-admin-get-config@latest
 
 # 3. Run the setup helper. Bumps host deps to React 18 / Spectrum 4 floor,
 #    scaffolds web-src/, removes the dx/excshell/1 boilerplate, and
@@ -115,7 +117,7 @@ bundle has a ready-to-consume artifact.
 | `OAUTH_CLIENT_SECRET`     | same                                                                                                                                                                                                            |
 | `OAUTH_ORG_ID`            | same                                                                                                                                                                                                            |
 | `OAUTH_SCOPES`            | should include `AdobeID, openid, read_organizations, additional_info.projectedProductContext, additional_info.roles, adobeio_api, read_client_secret, manage_client_secrets, event_receiver_api, commerce.accs` |
-| `AIO_DB_REGION`           | One of `amer | emea | apac | aus`. Must match the region where the App Builder Database service is entitled.                                                                                                    |
+| `AIO_DB_REGION`           | One of `amer                                                                                                                                                                                                    |
 | `SYSTEM_CONFIG_CRYPT_KEY` | At least 8 chars. **Generate once with `openssl rand -base64 32` and never rotate** — rotating breaks every encrypted value already in ABDB.                                                                    |
 
 
