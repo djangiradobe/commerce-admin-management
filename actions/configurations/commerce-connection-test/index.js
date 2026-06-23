@@ -11,15 +11,19 @@ async function main (params) {
   const logger = Core.Logger('commerce-connection-test', { level: params.LOG_LEVEL || 'info' })
   try {
     // Allow testing either the form values being entered OR the currently saved creds.
-    let creds = {
-      baseUrl: params.baseUrl,
-      consumerKey: params.consumerKey,
-      consumerSecret: params.consumerSecret,
-      accessToken: params.accessToken,
-      accessTokenSecret: params.accessTokenSecret
-    }
+    const type = params.type === 'accs' ? 'accs' : 'oauth1a'
+    let creds = type === 'accs'
+      ? { type: 'accs', baseUrl: params.baseUrl, imsApiKey: params.imsApiKey }
+      : {
+          type: 'oauth1a',
+          baseUrl: params.baseUrl,
+          consumerKey: params.consumerKey,
+          consumerSecret: params.consumerSecret,
+          accessToken: params.accessToken,
+          accessTokenSecret: params.accessTokenSecret
+        }
     const allBlank = !creds.baseUrl && !creds.consumerKey && !creds.consumerSecret &&
-      !creds.accessToken && !creds.accessTokenSecret
+      !creds.accessToken && !creds.accessTokenSecret && !creds.imsApiKey
     if (allBlank) {
       const saved = await readCommerceCreds(params, { fresh: true })
       if (!saved) {
@@ -27,13 +31,14 @@ async function main (params) {
       }
       creds = saved
     } else {
-      const missing = checkMissingRequestInputs(params, [
-        'baseUrl', 'consumerKey', 'consumerSecret', 'accessToken', 'accessTokenSecret'
-      ])
+      const required = type === 'accs'
+        ? ['baseUrl']
+        : ['baseUrl', 'consumerKey', 'consumerSecret', 'accessToken', 'accessTokenSecret']
+      const missing = checkMissingRequestInputs(params, required)
       if (missing) return errorResponse(400, missing, logger)
     }
 
-    const result = await testCommerceConnection(creds, logger)
+    const result = await testCommerceConnection(creds, logger, params)
     return {
       statusCode: result.ok ? 200 : 200, // surface failures in body, not HTTP
       body: result

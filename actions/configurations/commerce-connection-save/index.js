@@ -14,23 +14,32 @@ const {
 async function main (params) {
   const logger = Core.Logger('commerce-connection-save', { level: params.LOG_LEVEL || 'info' })
   try {
-    const missing = checkMissingRequestInputs(params, [
-      'baseUrl', 'consumerKey', 'consumerSecret', 'accessToken', 'accessTokenSecret'
-    ])
+    const type = params.type === 'accs' ? 'accs' : 'oauth1a'
+    const required = type === 'accs'
+      ? ['baseUrl']
+      : ['baseUrl', 'consumerKey', 'consumerSecret', 'accessToken', 'accessTokenSecret']
+    const missing = checkMissingRequestInputs(params, required)
     if (missing) return errorResponse(400, missing, logger)
 
-    const creds = {
-      baseUrl: params.baseUrl,
-      consumerKey: params.consumerKey,
-      consumerSecret: params.consumerSecret,
-      accessToken: params.accessToken,
-      accessTokenSecret: params.accessTokenSecret
-    }
+    const creds = type === 'accs'
+      ? {
+          type: 'accs',
+          baseUrl: params.baseUrl,
+          imsApiKey: params.imsApiKey
+        }
+      : {
+          type: 'oauth1a',
+          baseUrl: params.baseUrl,
+          consumerKey: params.consumerKey,
+          consumerSecret: params.consumerSecret,
+          accessToken: params.accessToken,
+          accessTokenSecret: params.accessTokenSecret
+        }
 
     // Validate before persisting unless the caller explicitly opted out.
     const skipTest = params.skipTest === true || params.skipTest === 'true'
     if (!skipTest) {
-      const test = await testCommerceConnection(creds, logger)
+      const test = await testCommerceConnection(creds, logger, params)
       if (!test.ok) {
         return {
           statusCode: 200,

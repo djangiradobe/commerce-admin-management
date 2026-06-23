@@ -2694,21 +2694,29 @@ import {
   ProgressCircle as ProgressCircle3,
   StatusLight,
   Divider as Divider3,
-  Form
+  Form,
+  Radio,
+  RadioGroup
 } from "@adobe/react-spectrum";
 import { jsx as jsx5, jsxs as jsxs5 } from "react/jsx-runtime";
-var FIELD_DEFS = [
-  { key: "baseUrl", label: "Commerce base URL", placeholder: "https://store.example.com/", type: "text" },
-  { key: "consumerKey", label: "Consumer key", placeholder: "", type: "text" },
-  { key: "consumerSecret", label: "Consumer secret", placeholder: "", type: "password" },
-  { key: "accessToken", label: "Access token", placeholder: "", type: "text" },
-  { key: "accessTokenSecret", label: "Access token secret", placeholder: "", type: "password" }
+var OAUTH1A_FIELDS = [
+  { key: "baseUrl", label: "Commerce base URL", placeholder: "https://store.example.com/", type: "text", required: true },
+  { key: "consumerKey", label: "Consumer key", placeholder: "", type: "text", required: true },
+  { key: "consumerSecret", label: "Consumer secret", placeholder: "", type: "password", required: true },
+  { key: "accessToken", label: "Access token", placeholder: "", type: "text", required: true },
+  { key: "accessTokenSecret", label: "Access token secret", placeholder: "", type: "password", required: true }
 ];
-var EMPTY = FIELD_DEFS.reduce((a, f) => {
-  a[f.key] = "";
+var ACCS_FIELDS = [
+  { key: "baseUrl", label: "Commerce base URL", placeholder: "https://<tenant>.commerce.adobe.com/", type: "text", required: true },
+  { key: "imsApiKey", label: "IMS API key (optional)", placeholder: "Defaults to workspace OAUTH_CLIENT_ID", type: "text", required: false }
+];
+var ALL_KEYS = ["baseUrl", "consumerKey", "consumerSecret", "accessToken", "accessTokenSecret", "imsApiKey"];
+var EMPTY = ALL_KEYS.reduce((a, k) => {
+  a[k] = "";
   return a;
 }, {});
 function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
+  const [type, setType] = useState6(() => initial && initial.type === "accs" ? "accs" : "oauth1a");
   const [values, setValues] = useState6(() => ({
     ...EMPTY,
     ...initial && initial.baseUrl ? { baseUrl: initial.baseUrl } : {}
@@ -2716,7 +2724,21 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
   const [testState, setTestState] = useState6({ status: "idle", message: "" });
   const [saveState, setSaveState] = useState6({ status: "idle", message: "" });
   const set = (k) => (v) => setValues((prev) => ({ ...prev, [k]: v }));
-  const allFilled = FIELD_DEFS.every((f) => String(values[f.key] || "").trim() !== "");
+  const activeFields = type === "accs" ? ACCS_FIELDS : OAUTH1A_FIELDS;
+  const allFilled = activeFields.filter((f) => f.required).every((f) => String(values[f.key] || "").trim() !== "");
+  function buildPayload() {
+    if (type === "accs") {
+      return { type: "accs", baseUrl: values.baseUrl, imsApiKey: values.imsApiKey };
+    }
+    return {
+      type: "oauth1a",
+      baseUrl: values.baseUrl,
+      consumerKey: values.consumerKey,
+      consumerSecret: values.consumerSecret,
+      accessToken: values.accessToken,
+      accessTokenSecret: values.accessTokenSecret
+    };
+  }
   async function handleTest() {
     setTestState({ status: "running", message: "Testing connection\u2026" });
     try {
@@ -2724,7 +2746,7 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
         { runtime, ims },
         getActionKey("commerceConnectionTest"),
         "",
-        values
+        buildPayload()
       );
       const body = res && res.body ? res.body : res;
       if (body && body.ok) {
@@ -2743,7 +2765,7 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
         { runtime, ims },
         getActionKey("commerceConnectionSave"),
         "",
-        values
+        buildPayload()
       );
       const body = res && res.body ? res.body : res;
       if (body && body.ok && body.saved) {
@@ -2761,7 +2783,36 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
     /* @__PURE__ */ jsx5(Heading3, { level: 2, children: "Connect to Adobe Commerce" }),
     /* @__PURE__ */ jsx5(Text3, { children: "Enter the REST/OAuth credentials for your Commerce instance. They are encrypted before being saved to App Builder Database. The rest of the app stays disabled until the connection is verified." }),
     /* @__PURE__ */ jsx5(Divider3, { size: "S", marginY: "size-300" }),
-    /* @__PURE__ */ jsx5(Form, { isRequired: true, necessityIndicator: "icon", labelPosition: "top", children: FIELD_DEFS.map((f) => /* @__PURE__ */ jsx5(
+    /* @__PURE__ */ jsxs5(
+      RadioGroup,
+      {
+        label: "Integration type",
+        value: type,
+        onChange: (v) => {
+          setType(v);
+          setTestState({ status: "idle", message: "" });
+        },
+        orientation: "horizontal",
+        children: [
+          /* @__PURE__ */ jsx5(Radio, { value: "oauth1a", children: "OAuth 1.0a (PaaS / on-prem)" }),
+          /* @__PURE__ */ jsx5(Radio, { value: "accs", children: "IMS OAuth (Adobe Commerce as a Cloud Service)" })
+        ]
+      }
+    ),
+    type === "accs" && /* @__PURE__ */ jsx5(View3, { marginTop: "size-100", marginBottom: "size-100", children: /* @__PURE__ */ jsxs5(Text3, { children: [
+      "ACCS uses the workspace IMS Server-to-Server credential (with the",
+      /* @__PURE__ */ jsx5("code", { children: " commerce.accs " }),
+      "scope). Only the base URL is required \u2014 the existing ",
+      /* @__PURE__ */ jsx5("code", { children: "OAUTH_CLIENT_ID" }),
+      "/",
+      /* @__PURE__ */ jsx5("code", { children: "SECRET" }),
+      "/",
+      /* @__PURE__ */ jsx5("code", { children: "ORG_ID" }),
+      "in ",
+      /* @__PURE__ */ jsx5("code", { children: ".env" }),
+      " mint the bearer token."
+    ] }) }),
+    /* @__PURE__ */ jsx5(Form, { necessityIndicator: "icon", labelPosition: "top", children: activeFields.map((f) => /* @__PURE__ */ jsx5(
       TextField3,
       {
         label: f.label,
@@ -2770,7 +2821,7 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
         value: values[f.key],
         onChange: set(f.key),
         autoComplete: "off",
-        isRequired: true,
+        isRequired: f.required,
         width: "100%"
       },
       f.key
