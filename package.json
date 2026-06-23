@@ -70,7 +70,7 @@
     }
   },
   "dependencies": {
-    "@adobedjangir/commerce-admin-get-config": "^0.0.4",
+    "@adobedjangir/commerce-admin-get-config": "^0.0.5",
     "esbuild": "^0.25.12"
   },
   "repository": {
