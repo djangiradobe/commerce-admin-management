@@ -103,7 +103,6 @@ function getCommerceAccsClient (creds, params, logger) {
     params.OAUTH_CLIENT_ID || params.IMS_OAUTH_S2S_CLIENT_ID ||
     process.env.OAUTH_CLIENT_ID || process.env.IMS_OAUTH_S2S_CLIENT_ID || ''
   const apiVersion = 'V1'
-  const storeCode = creds.storeCode || 'default'
 
   async function ensureToken () {
     const token = await fetchImsTokenFromClientCredentials(params)
@@ -113,9 +112,11 @@ function getCommerceAccsClient (creds, params, logger) {
     return token
   }
 
-  function makeUrl (resource, store) {
-    const s = (store != null && String(store).trim()) ? String(store).trim() : storeCode
-    return baseUrl + 'rest/' + s + '/' + apiVersion + '/' + resource.replace(/^\//, '')
+  // ACCS REST endpoints live directly under the tenant base URL at /V1/<resource>.
+  // There is no /rest/<storeCode>/ prefix as in PaaS Commerce — that legacy shape
+  // returns 404 against ACCS hosts.
+  function makeUrl (resource) {
+    return baseUrl + apiVersion + '/' + resource.replace(/^\//, '')
   }
 
   async function call (method, resource, body, customHeaders = {}) {
@@ -137,6 +138,8 @@ function getCommerceAccsClient (creds, params, logger) {
   }
 
   return {
+    // Signatures intentionally accept (and ignore) the legacy storeCode arg
+    // so the ACCS client is drop-in compatible with the PaaS oauth1a client.
     get:    (r, _t, h)    => call('GET', r, null, h),
     post:   (r, b, _t, h) => call('POST', r, b, h),
     put:    (r, b, _t, h) => call('PUT', r, b, h),
