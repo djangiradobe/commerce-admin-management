@@ -31,7 +31,7 @@ const OAUTH1A_FIELDS = [
 ]
 
 const ACCS_FIELDS = [
-  { key: 'baseUrl',   label: 'Commerce base URL', placeholder: 'https://<tenant>.commerce.adobe.com/', type: 'text',     required: true },
+  { key: 'baseUrl',   label: 'Commerce REST base URL (api host + tenant id)', placeholder: 'https://<region>-sandbox.api.commerce.adobe.com/<tenant-id>/', type: 'text', required: true },
   { key: 'imsApiKey', label: 'IMS API key (optional)', placeholder: 'Defaults to workspace OAUTH_CLIENT_ID', type: 'text', required: false }
 ]
 
@@ -147,8 +147,10 @@ export default function CommerceSetupWizard ({ runtime, ims, initial, onComplete
         <View marginTop="size-100" marginBottom="size-100">
           <Text>
             ACCS uses the workspace IMS Server-to-Server credential (with the
-            <code> commerce.accs </code>scope). Only the base URL is required —
-            the existing <code>OAUTH_CLIENT_ID</code>/<code>SECRET</code>/<code>ORG_ID</code>
+            <code> commerce.accs </code>scope). Use the <strong>api</strong> host
+            (e.g. <code>na1-sandbox.api.commerce.adobe.com</code>), <strong>not</strong>
+            the <code>admin.*</code> URL, and include the tenant id segment as a
+            path prefix. The <code>OAUTH_CLIENT_ID</code>/<code>SECRET</code>/<code>ORG_ID</code>
             in <code>.env</code> mint the bearer token.
           </Text>
         </View>

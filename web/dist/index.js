@@ -2707,7 +2707,7 @@ var OAUTH1A_FIELDS = [
   { key: "accessTokenSecret", label: "Access token secret", placeholder: "", type: "password", required: true }
 ];
 var ACCS_FIELDS = [
-  { key: "baseUrl", label: "Commerce base URL", placeholder: "https://<tenant>.commerce.adobe.com/", type: "text", required: true },
+  { key: "baseUrl", label: "Commerce REST base URL (api host + tenant id)", placeholder: "https://<region>-sandbox.api.commerce.adobe.com/<tenant-id>/", type: "text", required: true },
   { key: "imsApiKey", label: "IMS API key (optional)", placeholder: "Defaults to workspace OAUTH_CLIENT_ID", type: "text", required: false }
 ];
 var ALL_KEYS = ["baseUrl", "consumerKey", "consumerSecret", "accessToken", "accessTokenSecret", "imsApiKey"];
@@ -2802,7 +2802,15 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
     type === "accs" && /* @__PURE__ */ jsx5(View3, { marginTop: "size-100", marginBottom: "size-100", children: /* @__PURE__ */ jsxs5(Text3, { children: [
       "ACCS uses the workspace IMS Server-to-Server credential (with the",
       /* @__PURE__ */ jsx5("code", { children: " commerce.accs " }),
-      "scope). Only the base URL is required \u2014 the existing ",
+      "scope). Use the ",
+      /* @__PURE__ */ jsx5("strong", { children: "api" }),
+      " host (e.g. ",
+      /* @__PURE__ */ jsx5("code", { children: "na1-sandbox.api.commerce.adobe.com" }),
+      "), ",
+      /* @__PURE__ */ jsx5("strong", { children: "not" }),
+      "the ",
+      /* @__PURE__ */ jsx5("code", { children: "admin.*" }),
+      " URL, and include the tenant id segment as a path prefix. The ",
       /* @__PURE__ */ jsx5("code", { children: "OAUTH_CLIENT_ID" }),
       "/",
       /* @__PURE__ */ jsx5("code", { children: "SECRET" }),
