@@ -1,6 +1,6 @@
 // web/src/components/App.js
-import React4 from "react";
-import { Provider, lightTheme } from "@adobe/react-spectrum";
+import React5 from "react";
+import { Provider as Provider2, lightTheme as lightTheme2 } from "@adobe/react-spectrum";
 import { ErrorBoundary as ErrorBoundary2 } from "react-error-boundary";
 import { Route, Routes, HashRouter } from "react-router-dom";
 
@@ -10,7 +10,7 @@ import { register } from "@adobe/uix-guest";
 // web/src/components/MainPage.js
 import { View as View4, Flex as Flex4, ProgressCircle as ProgressCircle4, Text as Text4, Button as Button4, IllustratedMessage, Heading as Heading4 } from "@adobe/react-spectrum";
 import { attach } from "@adobe/uix-guest";
-import React3, { useEffect as useEffect6, useState as useState7, useCallback as useCallback4 } from "react";
+import React4, { useEffect as useEffect7, useState as useState8, useCallback as useCallback5 } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 import { useLocation as useLocation2 } from "react-router-dom";
 
@@ -18,16 +18,23 @@ import { useLocation as useLocation2 } from "react-router-dom";
 var nav_default = {
   items: [
     {
-      id: "system-config",
-      path: "/",
-      label: "System Configurations",
-      icon: "Settings"
+      id: "system",
+      label: "System",
+      icon: "Settings",
+      children: [
+        {
+          id: "system-config",
+          path: "/",
+          label: "System Configurations",
+          icon: "Settings"
+        }
+      ]
     }
   ]
 };
 
 // web/src/components/SystemConfig.js
-import { useState as useState5, useMemo as useMemo3, useEffect as useEffect5, useRef as useRef2 } from "react";
+import { useState as useState5, useMemo as useMemo3, useEffect as useEffect5, useRef as useRef2, useCallback as useCallback4 } from "react";
 import { Link } from "react-router-dom";
 import {
   View as View2,
@@ -35,6 +42,7 @@ import {
   Heading as Heading2,
   Text as Text2,
   Button as Button2,
+  ButtonGroup,
   ActionButton as ActionButton2,
   TooltipTrigger,
   Tooltip,
@@ -49,7 +57,13 @@ import {
   ProgressCircle as ProgressCircle2,
   ProgressBar,
   Divider as Divider2,
-  Well as Well2
+  Well as Well2,
+  SearchField,
+  DialogTrigger,
+  Dialog,
+  Header,
+  Content,
+  StatusLight
 } from "@adobe/react-spectrum";
 import Settings from "@spectrum-icons/workflow/Settings";
 import Globe from "@spectrum-icons/workflow/Globe";
@@ -65,6 +79,12 @@ import ChevronRight from "@spectrum-icons/workflow/ChevronRight";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 // web/src/utils.js
+function resolveActor(ims) {
+  if (!ims || typeof ims !== "object") return "anonymous";
+  const profile = ims.profile || {};
+  const candidate = profile.email || profile.userId || profile.displayName || profile.first_name || ims.org;
+  return candidate ? String(candidate) : "anonymous";
+}
 async function callAction(props, action, operation, body = {}) {
   var _a;
   const url = getActionUrl(action);
@@ -117,14 +137,30 @@ function isFieldVisibleAtScope(field, scope) {
   const allowed = (field == null ? void 0 : field.showIn) || ["default"];
   return allowed.includes(scope);
 }
+function sortByOrder(items) {
+  if (!Array.isArray(items)) return [];
+  return items.map((it, idx) => ({ it, idx, ord: typeof (it == null ? void 0 : it.sortOrder) === "number" ? it.sortOrder : 0 })).sort((a, b) => a.ord - b.ord || a.idx - b.idx).map((x) => x.it);
+}
+function nextSortOrder(items) {
+  if (!Array.isArray(items) || items.length === 0) return 10;
+  const max = items.reduce(
+    (m, it) => Math.max(m, typeof (it == null ? void 0 : it.sortOrder) === "number" ? it.sortOrder : 0),
+    0
+  );
+  return max + 10;
+}
+function renumberSortOrder(items) {
+  if (!Array.isArray(items)) return [];
+  return items.map((it, i) => ({ ...it, sortOrder: (i + 1) * 10 }));
+}
 function flattenFields(schema) {
   const out = [];
   if (!schema || !Array.isArray(schema.sections)) return out;
-  for (const section of schema.sections) {
+  for (const section of sortByOrder(schema.sections)) {
     if (!Array.isArray(section.groups)) continue;
-    for (const group of section.groups) {
+    for (const group of sortByOrder(section.groups)) {
       if (!Array.isArray(group.fields)) continue;
-      for (const field of group.fields) {
+      for (const field of sortByOrder(group.fields)) {
         out.push({
           section,
           group,
@@ -147,6 +183,64 @@ function coerceDefault(field) {
     default:
       return (_a = field == null ? void 0 : field.default) != null ? _a : "";
   }
+}
+function validateFieldValue(field, value) {
+  if (!field) return null;
+  const v = field.validation || {};
+  const isEmpty = value == null || value === "" || Array.isArray(value) && value.length === 0;
+  if (v.required && isEmpty) {
+    return `${field.label || field.id} is required`;
+  }
+  if (isEmpty) return null;
+  if (field.type === "number") {
+    const n = typeof value === "number" ? value : Number(value);
+    if (Number.isNaN(n)) return `${field.label || field.id} must be a number`;
+    if (v.min != null && n < v.min) return `${field.label || field.id} must be \u2265 ${v.min}`;
+    if (v.max != null && n > v.max) return `${field.label || field.id} must be \u2264 ${v.max}`;
+  } else if (typeof value === "string") {
+    if (v.minLength != null && value.length < v.minLength) {
+      return `${field.label || field.id} must be at least ${v.minLength} characters`;
+    }
+    if (v.maxLength != null && value.length > v.maxLength) {
+      return `${field.label || field.id} must be at most ${v.maxLength} characters`;
+    }
+    if (v.pattern) {
+      try {
+        const re = new RegExp(v.pattern);
+        if (!re.test(value)) {
+          return v.patternMessage || `${field.label || field.id} does not match the required pattern`;
+        }
+      } catch (_) {
+      }
+    }
+  }
+  if (Array.isArray(v.enum) && v.enum.length && !v.enum.includes(value)) {
+    return `${field.label || field.id} must be one of: ${v.enum.join(", ")}`;
+  }
+  const acceptsJsonFormat = field.type === "text" || field.type === "textarea" || field.type === "password";
+  if (v.format === "json" && acceptsJsonFormat && typeof value === "string") {
+    try {
+      JSON.parse(value);
+    } catch (_) {
+      return `${field.label || field.id} must be valid JSON`;
+    }
+  }
+  return null;
+}
+function validateSchema(schema, values) {
+  const errors = {};
+  if (!schema || !Array.isArray(schema.sections)) return errors;
+  for (const section of schema.sections) {
+    for (const group of section.groups || []) {
+      for (const field of group.fields || []) {
+        const path = getFieldPath(section.id, group.id, field.id);
+        if (!(path in values)) continue;
+        const err = validateFieldValue(field, values[path]);
+        if (err) errors[path] = err;
+      }
+    }
+  }
+  return errors;
 }
 
 // web/src/utils/storeMappingsFromCommerceRest.js
@@ -247,7 +341,10 @@ function useSystemConfig(props, schema) {
             values: { [STORE_MAPPINGS_PATH]: JSON.stringify(storeMappings, null, 2) },
             sensitivePaths: [],
             scope: "default",
-            scopeId: "0"
+            scopeId: "0",
+            // Flag automatic store-mappings refreshes distinctly so the audit
+            // log doesn't blame the operator for system-driven syncs.
+            actor: "system:store-mappings-sync"
           });
         } catch (err) {
           console.error("Failed to persist store_mappings to ABDB after loading Commerce stores", err);
@@ -335,10 +432,67 @@ function useSystemConfig(props, schema) {
     });
   }, [serverItems]);
   const dirtyCount = useMemo(() => Object.keys(localValues).length, [localValues]);
+  const [serverFieldErrors, setServerFieldErrors] = useState({});
+  useEffect(() => {
+    if (Object.keys(serverFieldErrors).length === 0) return;
+    setServerFieldErrors({});
+  }, [Object.keys(localValues).join("|")]);
+  const fieldErrors = useMemo(() => {
+    const errs = {};
+    const byPath = new Map(fields.map((f) => [f.path, f.field]));
+    for (const [path, value] of Object.entries(localValues)) {
+      const f = byPath.get(path);
+      if (!f) continue;
+      if (value === USE_DEFAULT_SENTINEL) continue;
+      if (value === SENSITIVE_PLACEHOLDER) continue;
+      const err = validateFieldValue(f, value);
+      if (err) errs[path] = err;
+    }
+    return errs;
+  }, [fields, localValues]);
+  const combinedErrors = useMemo(
+    () => ({ ...serverFieldErrors, ...fieldErrors }),
+    [serverFieldErrors, fieldErrors]
+  );
+  const hasErrors = Object.keys(combinedErrors).length > 0;
+  const computeDiff = useCallback(() => {
+    var _a, _b, _c, _d, _e, _f, _g;
+    const byPath = new Map(fields.map((f) => [f.path, f]));
+    const rows = [];
+    const visibleFieldsByPath = new Map(
+      fields.filter((f) => isFieldVisibleAtScope(f.field, scope.scope)).map((f) => [f.path, f])
+    );
+    for (const [path, value] of Object.entries(localValues)) {
+      if (!visibleFieldsByPath.has(path)) continue;
+      const meta = byPath.get(path);
+      const oldServer = serverItems[path];
+      let action;
+      if (value === USE_DEFAULT_SENTINEL) action = "inherit";
+      else if (value === SENSITIVE_PLACEHOLDER) continue;
+      else if (oldServer && oldServer.value !== void 0) action = "update";
+      else action = "create";
+      rows.push({
+        path,
+        label: ((_a = meta == null ? void 0 : meta.field) == null ? void 0 : _a.label) || ((_b = meta == null ? void 0 : meta.field) == null ? void 0 : _b.id) || path,
+        sectionLabel: ((_c = meta == null ? void 0 : meta.section) == null ? void 0 : _c.label) || ((_d = meta == null ? void 0 : meta.section) == null ? void 0 : _d.id),
+        groupLabel: ((_e = meta == null ? void 0 : meta.group) == null ? void 0 : _e.label) || ((_f = meta == null ? void 0 : meta.group) == null ? void 0 : _f.id),
+        oldValue: (meta == null ? void 0 : meta.sensitive) ? "[encrypted]" : (_g = oldServer == null ? void 0 : oldServer.value) != null ? _g : null,
+        newValue: (meta == null ? void 0 : meta.sensitive) ? "[encrypted]" : value,
+        action,
+        sensitive: !!(meta == null ? void 0 : meta.sensitive)
+      });
+    }
+    return rows;
+  }, [fields, localValues, serverItems, scope]);
   const save = useCallback(async () => {
     if (dirtyCount === 0) return true;
+    if (hasErrors) {
+      setError("Fix validation errors before saving");
+      return false;
+    }
     setSaving(true);
     setError(null);
+    setServerFieldErrors({});
     try {
       const visibleFieldsByPath = new Map(
         fields.filter((f) => isFieldVisibleAtScope(f.field, scope.scope)).map((f) => [f.path, f])
@@ -352,7 +506,7 @@ function useSystemConfig(props, schema) {
         setSaving(false);
         return true;
       }
-      await callAction(
+      const res = await callAction(
         props,
         getActionKey("systemConfigSave"),
         "",
@@ -360,20 +514,34 @@ function useSystemConfig(props, schema) {
           values: payload,
           sensitivePaths,
           scope: scope.scope,
-          scopeId: scope.scopeId
+          scopeId: scope.scopeId,
+          // Per-user audit attribution — resolved from the IMS profile so
+          // audit rows show the operator instead of the org id.
+          actor: resolveActor(props.ims),
+          // Caller-side role hint for RBAC. Server still enforces.
+          role: props.userRole || void 0
         }
       );
+      const body = (res == null ? void 0 : res.body) || res;
+      if (body && body.fieldErrors) {
+        setServerFieldErrors(body.fieldErrors);
+        setError(body.error || "Server rejected the save");
+        return false;
+      }
       setSavedAt(Date.now());
       await fetchAtScope();
       return true;
     } catch (e) {
+      const resp = e && e.response;
+      if (resp && resp.fieldErrors) setServerFieldErrors(resp.fieldErrors);
+      else if (resp && resp.body && resp.body.fieldErrors) setServerFieldErrors(resp.body.fieldErrors);
       console.error("Failed to save system config", e);
       setError(e.message || "Failed to save system config");
       return false;
     } finally {
       setSaving(false);
     }
-  }, [props, dirtyCount, localValues, sensitivePaths, scope, fields, fetchAtScope]);
+  }, [props, dirtyCount, hasErrors, localValues, sensitivePaths, scope, fields, fetchAtScope]);
   const reset = useCallback(() => {
     setLocalValues({});
   }, []);
@@ -396,6 +564,9 @@ function useSystemConfig(props, schema) {
     save,
     reset,
     refresh: fetchAtScope,
+    fieldErrors: combinedErrors,
+    hasErrors,
+    computeDiff,
     SENSITIVE_PLACEHOLDER,
     USE_DEFAULT_SENTINEL
   };
@@ -442,7 +613,14 @@ function useSystemConfigSchema(props) {
           props,
           getActionKey("systemConfigSchema"),
           "save",
-          { schema: nextSchema, ...confirmCascade ? { confirmCascade: true } : {} }
+          {
+            schema: nextSchema,
+            // Caller role for the server-side admin gate. Server is
+            // authoritative — this is just a hint so the rejection is
+            // explicit rather than a generic 500.
+            role: props.userRole || void 0,
+            ...confirmCascade ? { confirmCascade: true } : {}
+          }
         );
       } catch (err) {
         const removed = ((_a = err == null ? void 0 : err.response) == null ? void 0 : _a.removedPaths) || ((_c = (_b = err == null ? void 0 : err.response) == null ? void 0 : _b.body) == null ? void 0 : _c.removedPaths);
@@ -933,27 +1111,332 @@ import {
   Well,
   ProgressCircle
 } from "@adobe/react-spectrum";
+
+// web/src/schema/validation-presets.js
+var PRESETS = [
+  {
+    id: "free-text",
+    label: "Free text (no validation)",
+    description: "Accepts any value.",
+    types: ["text", "textarea", "password"],
+    apply: () => ({})
+  },
+  {
+    id: "required",
+    label: "Required (not empty)",
+    description: "Must have a value, no further constraint.",
+    types: ["text", "textarea", "password", "number", "select", "boolean"],
+    apply: () => ({ required: true })
+  },
+  {
+    id: "email",
+    label: "Email",
+    description: "RFC-5322 lite \u2014 same shape as Magento validate-email.",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
+      patternMessage: "Enter a valid email address"
+    })
+  },
+  {
+    id: "url",
+    label: "URL (http or https)",
+    description: "validate-url \u2014 must start with http(s)://",
+    types: ["text", "textarea"],
+    apply: () => ({
+      pattern: "^https?://[^\\s]+$",
+      patternMessage: "Enter a valid URL starting with http:// or https://"
+    })
+  },
+  {
+    id: "secure-url",
+    label: "Secure URL (https only)",
+    description: "validate-secure-url \u2014 must start with https://",
+    types: ["text", "textarea"],
+    apply: () => ({
+      pattern: "^https://[^\\s]+$",
+      patternMessage: "Enter a valid URL starting with https://"
+    })
+  },
+  {
+    id: "integer",
+    label: "Integer",
+    description: "validate-integer \u2014 whole number, can be negative.",
+    types: ["text", "number"],
+    apply: () => ({
+      pattern: "^-?\\d+$",
+      patternMessage: "Enter a whole number"
+    })
+  },
+  {
+    id: "positive-integer",
+    label: "Positive integer (\u2265 1)",
+    description: "validate-greater-than-zero.",
+    types: ["text", "number"],
+    apply: (field) => (field == null ? void 0 : field.type) === "number" ? { min: 1, pattern: "^\\d+$", patternMessage: "Enter a whole number \u2265 1" } : { pattern: "^[1-9]\\d*$", patternMessage: "Enter a whole number \u2265 1" }
+  },
+  {
+    id: "non-negative-integer",
+    label: "Non-negative integer (\u2265 0)",
+    description: "validate-zero-or-greater.",
+    types: ["text", "number"],
+    apply: (field) => (field == null ? void 0 : field.type) === "number" ? { min: 0, pattern: "^\\d+$", patternMessage: "Enter a whole number \u2265 0" } : { pattern: "^\\d+$", patternMessage: "Enter a whole number \u2265 0" }
+  },
+  {
+    id: "decimal",
+    label: "Decimal number",
+    description: "validate-number \u2014 accepts decimals like 1.23 or -0.5.",
+    types: ["text", "number"],
+    apply: () => ({
+      pattern: "^-?\\d+(\\.\\d+)?$",
+      patternMessage: "Enter a number"
+    })
+  },
+  {
+    id: "alphanumeric",
+    label: "Alphanumeric",
+    description: "validate-alphanum \u2014 letters and digits only.",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^[a-zA-Z0-9]+$",
+      patternMessage: "Letters and digits only"
+    })
+  },
+  {
+    id: "alphanumeric-with-spaces",
+    label: "Alphanumeric + spaces",
+    description: "Letters, digits and spaces.",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^[a-zA-Z0-9 ]+$",
+      patternMessage: "Letters, digits and spaces only"
+    })
+  },
+  {
+    id: "alpha",
+    label: "Letters only",
+    description: "validate-alpha \u2014 letters only.",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^[a-zA-Z]+$",
+      patternMessage: "Letters only"
+    })
+  },
+  {
+    id: "slug",
+    label: "Slug / handle",
+    description: "Lower-case letters, digits and hyphens (URL-safe).",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      patternMessage: "Lower-case letters, digits and hyphens (no spaces)"
+    })
+  },
+  {
+    id: "phone",
+    label: "Phone number",
+    description: "validate-phoneStrict \u2014 digits, spaces, hyphens, parens, leading +",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^\\+?[0-9 ()\\-]{6,20}$",
+      patternMessage: "Enter a valid phone number"
+    })
+  },
+  {
+    id: "hex-color",
+    label: "Hex color",
+    description: "validate-color \u2014 e.g. #1473e6 or #fff.",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^#(?:[0-9a-fA-F]{3}){1,2}$",
+      patternMessage: "Enter a valid hex color (e.g. #1473e6)"
+    })
+  },
+  {
+    id: "ipv4",
+    label: "IPv4 address",
+    description: "validate-ip \u2014 e.g. 192.168.1.1",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^((25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\.){3}(25[0-5]|2[0-4]\\d|[01]?\\d\\d?)$",
+      patternMessage: "Enter a valid IPv4 address"
+    })
+  },
+  {
+    id: "hostname",
+    label: "Hostname",
+    description: "DNS-style hostname (e.g. shop.example.com).",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$",
+      patternMessage: "Enter a valid hostname"
+    })
+  },
+  {
+    id: "json",
+    label: "JSON",
+    description: "validate-json \u2014 must parse as JSON. Pattern is best-effort; full check runs at save.",
+    types: ["textarea", "text"],
+    apply: () => ({
+      // Pattern can only guess; the parser does the real check via `format: 'json'`.
+      pattern: "^[\\s\\S]*$",
+      patternMessage: "Must be valid JSON",
+      format: "json"
+    })
+  },
+  {
+    id: "date-iso",
+    label: "Date (YYYY-MM-DD)",
+    description: "validate-date \u2014 ISO-style calendar date.",
+    types: ["text"],
+    apply: () => ({
+      pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+      patternMessage: "Enter a date as YYYY-MM-DD"
+    })
+  },
+  {
+    id: "no-html",
+    label: "No HTML tags",
+    description: "validate-no-html-tags \u2014 refuses any < or >.",
+    types: ["text", "textarea"],
+    apply: () => ({
+      pattern: "^[^<>]*$",
+      patternMessage: "HTML tags are not allowed"
+    })
+  }
+];
+var PRESETS_BY_ID = new Map(PRESETS.map((p) => [p.id, p]));
+function presetsForType(type) {
+  if (!type) return PRESETS;
+  return PRESETS.filter((p) => !p.types || p.types.includes(type));
+}
+function applyPreset(presetId, field) {
+  const p = PRESETS_BY_ID.get(presetId);
+  if (!p) return (field == null ? void 0 : field.validation) || {};
+  const patch = p.apply(field) || {};
+  return { ...(field == null ? void 0 : field.validation) || {}, ...patch, preset: presetId };
+}
+
+// web/src/components/SystemConfigSchemaEditor.js
 import { Fragment, jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
 var ID_RE = /^[a-zA-Z][a-zA-Z0-9_]*$/;
-function blankField() {
+var _uidSeq = 0;
+function uid() {
+  _uidSeq += 1;
+  return `u${Date.now().toString(36)}_${_uidSeq}`;
+}
+function blankField(siblings = []) {
   return {
+    _uid: uid(),
     id: "",
     label: "",
     type: "text",
     default: "",
     showIn: ["default"],
     sensitive: false,
-    options: []
+    options: [],
+    sortOrder: nextSortOrder(siblings)
   };
 }
-function blankGroup() {
-  return { id: "", label: "", fields: [] };
+function blankGroup(siblings = []) {
+  return { _uid: uid(), id: "", label: "", fields: [], sortOrder: nextSortOrder(siblings) };
 }
-function blankSection() {
-  return { id: "", label: "", groups: [] };
+function blankSection(siblings = []) {
+  return { _uid: uid(), id: "", label: "", groups: [], sortOrder: nextSortOrder(siblings) };
+}
+function ensureUids(schema) {
+  for (const s of (schema == null ? void 0 : schema.sections) || []) {
+    if (!s._uid) s._uid = uid();
+    for (const g of s.groups || []) {
+      if (!g._uid) g._uid = uid();
+      for (const f of g.fields || []) {
+        if (!f._uid) f._uid = uid();
+      }
+    }
+  }
+  return schema;
+}
+function stripUids(schema) {
+  const clean = JSON.parse(JSON.stringify(schema || {}));
+  for (const s of clean.sections || []) {
+    delete s._uid;
+    for (const g of s.groups || []) {
+      delete g._uid;
+      for (const f of g.fields || []) delete f._uid;
+    }
+  }
+  return clean;
+}
+function useDnd(items, onReorder) {
+  const [draggingIndex, setDraggingIndex] = useState4(null);
+  const [hoverIndex, setHoverIndex] = useState4(null);
+  const handlers = (idx) => ({
+    draggable: true,
+    onDragStart: (e) => {
+      setDraggingIndex(idx);
+      try {
+        e.dataTransfer.effectAllowed = "move";
+      } catch (_) {
+      }
+      try {
+        e.dataTransfer.setData("text/plain", String(idx));
+      } catch (_) {
+      }
+    },
+    onDragOver: (e) => {
+      e.preventDefault();
+      try {
+        e.dataTransfer.dropEffect = "move";
+      } catch (_) {
+      }
+      if (hoverIndex !== idx) setHoverIndex(idx);
+    },
+    onDragLeave: () => {
+      if (hoverIndex === idx) setHoverIndex(null);
+    },
+    onDrop: (e) => {
+      e.preventDefault();
+      const from = draggingIndex;
+      const to = idx;
+      setDraggingIndex(null);
+      setHoverIndex(null);
+      if (from == null || from === to) return;
+      const next = [...items];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      onReorder(renumberSortOrder(next));
+    },
+    onDragEnd: () => {
+      setDraggingIndex(null);
+      setHoverIndex(null);
+    }
+  });
+  return { draggingIndex, hoverIndex, handlers };
+}
+function DragHandle({ active }) {
+  return /* @__PURE__ */ jsx2(
+    "span",
+    {
+      title: "Drag to reorder",
+      style: {
+        cursor: "grab",
+        userSelect: "none",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 22,
+        height: 22,
+        borderRadius: 4,
+        color: active ? PALETTE.accent : PALETTE.textMuted,
+        fontSize: 16,
+        lineHeight: 1
+      },
+      children: "\u22EE\u22EE"
+    }
+  );
 }
 function cloneSchema(schema) {
-  return JSON.parse(JSON.stringify(schema || emptySchema()));
+  return ensureUids(JSON.parse(JSON.stringify(schema || emptySchema())));
 }
 function validateLocal(schema) {
   var _a, _b, _c;
@@ -988,7 +1471,8 @@ function validateLocal(schema) {
   }
   return null;
 }
-function FieldEditor({ field, onChange, onRemove }) {
+function FieldEditor({ field, onChange, onRemove, dragging }) {
+  var _a;
   const update = (patch) => onChange({ ...field, ...patch });
   const addOption = () => {
     update({ options: [...field.options || [], { value: "", label: "" }] });
@@ -1011,9 +1495,25 @@ function FieldEditor({ field, onChange, onRemove }) {
     marginBottom: 10
   }, children: [
     /* @__PURE__ */ jsxs2(Flex, { gap: "size-150", wrap: true, alignItems: "end", children: [
+      /* @__PURE__ */ jsx2(DragHandle, { active: dragging }),
       /* @__PURE__ */ jsx2(TextField, { label: "Field ID", value: field.id, onChange: (v) => update({ id: v }), width: "size-2400" }),
       /* @__PURE__ */ jsx2(TextField, { label: "Label", value: field.label, onChange: (v) => update({ label: v }), width: "size-3000" }),
-      /* @__PURE__ */ jsx2(Picker, { label: "Type", selectedKey: field.type, onSelectionChange: (k) => update({ type: k }), width: "size-2000", children: FIELD_TYPES.map((t) => /* @__PURE__ */ jsx2(Item, { children: t }, t)) }),
+      /* @__PURE__ */ jsx2(
+        Picker,
+        {
+          label: "Type",
+          selectedKey: field.type,
+          onSelectionChange: (k) => {
+            const v = field.validation || {};
+            const currentPreset = v.preset && PRESETS_BY_ID.get(v.preset);
+            const stillApplies = currentPreset && (!currentPreset.types || currentPreset.types.includes(k));
+            const nextValidation = stillApplies ? v : v.required ? { required: true } : void 0;
+            update({ type: k, validation: nextValidation });
+          },
+          width: "size-2000",
+          children: FIELD_TYPES.map((t) => /* @__PURE__ */ jsx2(Item, { children: t }, t))
+        }
+      ),
       /* @__PURE__ */ jsx2(
         TextField,
         {
@@ -1021,6 +1521,16 @@ function FieldEditor({ field, onChange, onRemove }) {
           value: field.default == null ? "" : String(field.default),
           onChange: (v) => update({ default: v }),
           width: "size-2400"
+        }
+      ),
+      /* @__PURE__ */ jsx2(
+        TextField,
+        {
+          label: "Sort order",
+          value: String((_a = field.sortOrder) != null ? _a : 0),
+          onChange: (v) => update({ sortOrder: Number(v) || 0 }),
+          width: "size-1200",
+          type: "number"
         }
       ),
       /* @__PURE__ */ jsx2(ActionButton, { onPress: onRemove, children: "Remove field" })
@@ -1041,32 +1551,231 @@ function FieldEditor({ field, onChange, onRemove }) {
         },
         scope
       )),
-      /* @__PURE__ */ jsx2(Switch, { isSelected: !!field.sensitive, onChange: (v) => update({ sensitive: v }), children: "Sensitive (encrypt at rest)" })
+      /* @__PURE__ */ jsx2(Switch, { isSelected: !!field.sensitive, onChange: (v) => update({ sensitive: v }), children: "Sensitive (encrypt at rest)" }),
+      /* @__PURE__ */ jsxs2(
+        Picker,
+        {
+          label: "Min role",
+          selectedKey: field.requiredRole || "none",
+          onSelectionChange: (k) => update({ requiredRole: k === "none" ? void 0 : k }),
+          width: "size-1700",
+          children: [
+            /* @__PURE__ */ jsx2(Item, { children: "(anyone)" }, "none"),
+            /* @__PURE__ */ jsx2(Item, { children: "viewer" }, "viewer"),
+            /* @__PURE__ */ jsx2(Item, { children: "editor" }, "editor"),
+            /* @__PURE__ */ jsx2(Item, { children: "admin" }, "admin")
+          ]
+        }
+      )
     ] }),
-    field.type === "select" && /* @__PURE__ */ jsxs2(View, { marginTop: "size-150", children: [
-      /* @__PURE__ */ jsx2(Text, { children: "Options" }),
-      (field.options || []).map((opt, i) => /* @__PURE__ */ jsxs2(Flex, { gap: "size-100", marginTop: "size-75", alignItems: "end", children: [
+    field.type === "select" && /* @__PURE__ */ jsxs2(View, { marginTop: "size-200", children: [
+      /* @__PURE__ */ jsx2(
+        Text,
+        {
+          UNSAFE_style: {
+            display: "block",
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+            color: PALETTE.textMuted,
+            marginBottom: 8
+          },
+          children: "Options"
+        }
+      ),
+      (field.options || []).map((opt, i) => /* @__PURE__ */ jsxs2(Flex, { gap: "size-100", marginBottom: "size-100", alignItems: "end", children: [
         /* @__PURE__ */ jsx2(TextField, { label: "Value", value: opt.value, onChange: (v) => updateOption(i, { value: v }), width: "size-2400" }),
         /* @__PURE__ */ jsx2(TextField, { label: "Label", value: opt.label, onChange: (v) => updateOption(i, { label: v }), width: "size-3000" }),
         /* @__PURE__ */ jsx2(ActionButton, { onPress: () => removeOption(i), children: "Remove" })
       ] }, i)),
-      /* @__PURE__ */ jsx2(Button, { variant: "secondary", marginTop: "size-100", onPress: addOption, children: "+ Add option" })
-    ] })
+      /* @__PURE__ */ jsx2(Button, { variant: "secondary", onPress: addOption, children: "+ Add option" })
+    ] }),
+    /* @__PURE__ */ jsx2(ValidationEditor, { field, onChange })
   ] });
 }
-function GroupEditor({ group, onChange, onRemove }) {
+function ValidationEditor({ field, onChange }) {
+  const v = field.validation || {};
+  const setV = (patch) => {
+    const next = { ...v, ...patch };
+    for (const k of Object.keys(next)) {
+      const val = next[k];
+      if (val == null || val === "" || Array.isArray(val) && val.length === 0) delete next[k];
+    }
+    const update = Object.keys(next).length ? { validation: next } : { validation: void 0 };
+    onChange({ ...field, ...update });
+  };
+  const isNumber = field.type === "number";
+  const isString = field.type === "text" || field.type === "textarea" || field.type === "password";
+  return /* @__PURE__ */ jsxs2(
+    View,
+    {
+      marginTop: "size-150",
+      paddingX: "size-150",
+      paddingY: "size-100",
+      UNSAFE_style: {
+        borderTop: `1px dashed ${PALETTE.border}`
+      },
+      children: [
+        /* @__PURE__ */ jsx2(Text, { UNSAFE_style: { fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", color: PALETTE.textMuted }, children: "Validation" }),
+        /* @__PURE__ */ jsxs2(Flex, { gap: "size-150", wrap: true, alignItems: "end", marginTop: "size-100", children: [
+          /* @__PURE__ */ jsx2(
+            Picker,
+            {
+              label: "Preset",
+              selectedKey: v.preset || "free-text",
+              onSelectionChange: (id) => {
+                const next = applyPreset(id, field);
+                if (id === "free-text") {
+                  const kept = v.required ? { required: true } : {};
+                  onChange({ ...field, validation: Object.keys(kept).length ? kept : void 0 });
+                  return;
+                }
+                onChange({ ...field, validation: next });
+              },
+              width: "size-3000",
+              children: presetsForType(field.type).map((p) => /* @__PURE__ */ jsx2(Item, { children: p.label }, p.id))
+            }
+          ),
+          /* @__PURE__ */ jsx2(Switch, { isSelected: !!v.required, onChange: (b) => setV({ required: b || void 0 }), children: "Required" }),
+          isNumber && /* @__PURE__ */ jsxs2(Fragment, { children: [
+            /* @__PURE__ */ jsx2(
+              TextField,
+              {
+                label: "Min",
+                value: v.min == null ? "" : String(v.min),
+                onChange: (s) => setV({ min: s === "" ? void 0 : Number(s) }),
+                width: "size-1200",
+                type: "number"
+              }
+            ),
+            /* @__PURE__ */ jsx2(
+              TextField,
+              {
+                label: "Max",
+                value: v.max == null ? "" : String(v.max),
+                onChange: (s) => setV({ max: s === "" ? void 0 : Number(s) }),
+                width: "size-1200",
+                type: "number"
+              }
+            )
+          ] }),
+          isString && /* @__PURE__ */ jsxs2(Fragment, { children: [
+            /* @__PURE__ */ jsx2(
+              TextField,
+              {
+                label: "Min length",
+                value: v.minLength == null ? "" : String(v.minLength),
+                onChange: (s) => setV({ minLength: s === "" ? void 0 : Number(s) }),
+                width: "size-1600",
+                type: "number"
+              }
+            ),
+            /* @__PURE__ */ jsx2(
+              TextField,
+              {
+                label: "Max length",
+                value: v.maxLength == null ? "" : String(v.maxLength),
+                onChange: (s) => setV({ maxLength: s === "" ? void 0 : Number(s) }),
+                width: "size-1600",
+                type: "number"
+              }
+            ),
+            /* @__PURE__ */ jsx2(
+              TextField,
+              {
+                label: "Pattern (regex)",
+                value: v.pattern || "",
+                onChange: (s) => setV({ pattern: s || void 0 }),
+                width: "size-3000",
+                placeholder: "^https://"
+              }
+            ),
+            /* @__PURE__ */ jsx2(
+              TextField,
+              {
+                label: "Pattern message",
+                value: v.patternMessage || "",
+                onChange: (s) => setV({ patternMessage: s || void 0 }),
+                width: "size-3000",
+                placeholder: "Must start with https://"
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsx2(
+            TextField,
+            {
+              label: field.type === "select" ? "Enum (overrides options)" : "Enum",
+              value: Array.isArray(v.enum) ? v.enum.join(", ") : "",
+              onChange: (s) => {
+                const parts = (s || "").split(",").map((x) => x.trim()).filter(Boolean);
+                setV({ enum: parts.length ? parts : void 0 });
+              },
+              width: "size-3000",
+              placeholder: "value1, value2"
+            }
+          )
+        ] })
+      ]
+    }
+  );
+}
+function GroupList({ groups, onReorder, onUpdate, onRemove }) {
+  const dnd = useDnd(groups, onReorder);
+  return /* @__PURE__ */ jsx2(Fragment, { children: groups.map((g, gi) => {
+    const dragging = dnd.draggingIndex === gi;
+    const hover = dnd.hoverIndex === gi && !dragging;
+    return /* @__PURE__ */ jsx2(
+      "div",
+      {
+        ...dnd.handlers(gi),
+        style: {
+          opacity: dragging ? 0.4 : 1,
+          borderTop: hover ? `3px solid ${PALETTE.accent}` : "3px solid transparent",
+          transition: "border-color 100ms ease, opacity 100ms ease"
+        },
+        children: /* @__PURE__ */ jsx2(
+          GroupEditor,
+          {
+            group: g,
+            dragging,
+            onChange: (next) => onUpdate(gi, next),
+            onRemove: () => onRemove(gi)
+          }
+        )
+      },
+      g._uid || gi
+    );
+  }) });
+}
+function GroupEditor({ group, onChange, onRemove, dragging }) {
+  var _a;
   const update = (patch) => onChange({ ...group, ...patch });
-  const addField = () => update({ fields: [...group.fields || [], blankField()] });
+  const fieldsSorted = sortByOrder(group.fields || []);
+  const addField = () => {
+    const siblings = group.fields || [];
+    update({ fields: [...siblings, blankField(siblings)] });
+  };
   const updateField = (i, next) => {
-    const fields = [...group.fields || []];
-    fields[i] = next;
+    const original = group.fields || [];
+    const target = fieldsSorted[i];
+    const idx = original.findIndex((f) => f === target);
+    if (idx === -1) return;
+    const fields = [...original];
+    fields[idx] = next;
     update({ fields });
   };
   const removeField = (i) => {
-    const fields = [...group.fields || []];
-    fields.splice(i, 1);
+    const original = group.fields || [];
+    const target = fieldsSorted[i];
+    const idx = original.findIndex((f) => f === target);
+    if (idx === -1) return;
+    const fields = [...original];
+    fields.splice(idx, 1);
     update({ fields });
   };
+  const reorderFields = (newArr) => update({ fields: newArr });
+  const fieldDnd = useDnd(fieldsSorted, reorderFields);
   return /* @__PURE__ */ jsxs2("div", { style: {
     background: PALETTE.surface,
     border: `1px solid ${PALETTE.border}`,
@@ -1076,24 +1785,51 @@ function GroupEditor({ group, onChange, onRemove }) {
     marginBottom: 16
   }, children: [
     /* @__PURE__ */ jsxs2(Flex, { gap: "size-200", alignItems: "end", marginBottom: "size-150", wrap: true, children: [
+      /* @__PURE__ */ jsx2(DragHandle, { active: dragging }),
       /* @__PURE__ */ jsx2(TextField, { label: "Group ID", value: group.id, onChange: (v) => update({ id: v }), width: "size-2400" }),
       /* @__PURE__ */ jsx2(TextField, { label: "Group Label", value: group.label, onChange: (v) => update({ label: v }), width: "size-3600" }),
+      /* @__PURE__ */ jsx2(
+        TextField,
+        {
+          label: "Sort order",
+          value: String((_a = group.sortOrder) != null ? _a : 0),
+          onChange: (v) => update({ sortOrder: Number(v) || 0 }),
+          width: "size-1200",
+          type: "number"
+        }
+      ),
       /* @__PURE__ */ jsx2(ActionButton, { onPress: onRemove, children: "Remove group" })
     ] }),
     /* @__PURE__ */ jsx2(Divider, { size: "S", marginBottom: "size-150" }),
-    (group.fields || []).map((f, i) => /* @__PURE__ */ jsx2(
-      FieldEditor,
-      {
-        field: f,
-        onChange: (next) => updateField(i, next),
-        onRemove: () => removeField(i)
-      },
-      i
-    )),
+    fieldsSorted.map((f, i) => {
+      const fDragging = fieldDnd.draggingIndex === i;
+      const fHover = fieldDnd.hoverIndex === i && !fDragging;
+      return /* @__PURE__ */ jsx2(
+        "div",
+        {
+          ...fieldDnd.handlers(i),
+          style: {
+            opacity: fDragging ? 0.4 : 1,
+            borderTop: fHover ? `2px solid ${PALETTE.accent}` : "2px solid transparent"
+          },
+          children: /* @__PURE__ */ jsx2(
+            FieldEditor,
+            {
+              field: f,
+              dragging: fDragging,
+              onChange: (next) => updateField(i, next),
+              onRemove: () => removeField(i)
+            }
+          )
+        },
+        f._uid || i
+      );
+    }),
     /* @__PURE__ */ jsx2(Button, { variant: "secondary", onPress: addField, children: "+ Add field" })
   ] });
 }
 function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, palette }) {
+  var _a;
   const [draft, setDraft] = useState4(() => cloneSchema(schema));
   const [activeSectionIdx, setActiveSectionIdx] = useState4(0);
   const [localError, setLocalError] = useState4(null);
@@ -1112,14 +1848,25 @@ function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, pal
   const addSection = () => {
     setDraft((prev) => {
       const next = cloneSchema(prev);
-      next.sections.push(blankSection());
+      next.sections.push(blankSection(next.sections));
       return next;
     });
     setActiveSectionIdx(draft.sections.length);
   };
+  const reorderSections = (newArr) => {
+    setDraft((prev) => {
+      var _a2;
+      const next = cloneSchema(prev);
+      const currentUid = (_a2 = next.sections[activeSectionIdx]) == null ? void 0 : _a2._uid;
+      next.sections = newArr;
+      const newIdx = currentUid ? newArr.findIndex((s) => s._uid === currentUid) : 0;
+      if (newIdx >= 0) setActiveSectionIdx(newIdx);
+      return next;
+    });
+  };
   const removeSection = async (idx) => {
-    var _a, _b;
-    const label = ((_a = draft.sections[idx]) == null ? void 0 : _a.label) || ((_b = draft.sections[idx]) == null ? void 0 : _b.id) || `section ${idx + 1}`;
+    var _a2, _b;
+    const label = ((_a2 = draft.sections[idx]) == null ? void 0 : _a2.label) || ((_b = draft.sections[idx]) == null ? void 0 : _b.id) || `section ${idx + 1}`;
     const ok = await confirm({
       title: "Remove section?",
       body: `"${label}" and all of its groups/fields will be removed from the schema. Values already stored under those field paths will remain in the database.`,
@@ -1135,7 +1882,8 @@ function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, pal
     setActiveSectionIdx(0);
   };
   const addGroup = () => {
-    updateSection(activeSectionIdx, { groups: [...activeSection.groups || [], blankGroup()] });
+    const siblings = activeSection.groups || [];
+    updateSection(activeSectionIdx, { groups: [...siblings, blankGroup(siblings)] });
   };
   const updateGroup = (gi, next) => {
     const groups = [...activeSection.groups || []];
@@ -1147,6 +1895,9 @@ function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, pal
     groups.splice(gi, 1);
     updateSection(activeSectionIdx, { groups });
   };
+  const reorderGroups = (newArr) => {
+    updateSection(activeSectionIdx, { groups: newArr });
+  };
   const handleSave = async () => {
     const localMsg = validateLocal(draft);
     if (localMsg) {
@@ -1154,10 +1905,11 @@ function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, pal
       return;
     }
     setLocalError(null);
-    await onSave(draft);
+    await onSave(stripUids(draft));
   };
   const combinedError = localError || error;
-  const displayedSections = useMemo2(() => draft.sections, [draft.sections]);
+  const displayedSections = useMemo2(() => sortByOrder(draft.sections), [draft.sections]);
+  const sectionDnd = useDnd(displayedSections, reorderSections);
   const P = palette || PALETTE;
   const card = {
     background: P.surface,
@@ -1237,51 +1989,68 @@ function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, pal
             }, children: "Sections" }),
             displayedSections.map((s, idx) => {
               const active = idx === activeSectionIdx;
-              return /* @__PURE__ */ jsxs2("div", { style: { display: "flex", alignItems: "center", gap: 4 }, children: [
-                /* @__PURE__ */ jsx2(
-                  "button",
-                  {
-                    type: "button",
-                    role: "tab",
-                    "aria-selected": active,
-                    onClick: () => setActiveSectionIdx(idx),
-                    style: {
-                      flex: 1,
-                      display: "flex",
-                      alignItems: "center",
-                      padding: "10px 14px",
-                      border: 0,
-                      borderRadius: RADIUS.pill,
-                      background: active ? P.surface : "transparent",
-                      cursor: active ? "default" : "pointer",
-                      font: "inherit",
-                      color: active ? P.accent : PALETTE.neutralText,
-                      fontWeight: active ? 700 : 600,
-                      textAlign: "left",
-                      fontSize: 13,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      boxShadow: active ? SHADOW.pill : "none",
-                      transition: "background 140ms ease, color 140ms ease, box-shadow 140ms ease"
-                    },
-                    onMouseOver: (e) => {
-                      if (!active) {
-                        e.currentTarget.style.background = PALETTE.surface;
-                        e.currentTarget.style.color = PALETTE.text;
+              const dragging = sectionDnd.draggingIndex === idx;
+              const hover = sectionDnd.hoverIndex === idx && !dragging;
+              return /* @__PURE__ */ jsxs2(
+                "div",
+                {
+                  ...sectionDnd.handlers(idx),
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    opacity: dragging ? 0.4 : 1,
+                    borderTop: hover ? `2px solid ${P.accent}` : "2px solid transparent"
+                  },
+                  children: [
+                    /* @__PURE__ */ jsx2(DragHandle, { active: dragging }),
+                    /* @__PURE__ */ jsx2(
+                      "button",
+                      {
+                        type: "button",
+                        role: "tab",
+                        "aria-selected": active,
+                        onClick: () => setActiveSectionIdx(idx),
+                        style: {
+                          flex: 1,
+                          display: "flex",
+                          alignItems: "center",
+                          padding: "10px 14px",
+                          border: 0,
+                          borderRadius: RADIUS.pill,
+                          background: active ? P.surface : "transparent",
+                          cursor: active ? "default" : "pointer",
+                          font: "inherit",
+                          color: active ? P.accent : PALETTE.neutralText,
+                          fontWeight: active ? 700 : 600,
+                          textAlign: "left",
+                          fontSize: 13,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          boxShadow: active ? SHADOW.pill : "none",
+                          transition: "background 140ms ease, color 140ms ease, box-shadow 140ms ease"
+                        },
+                        onMouseOver: (e) => {
+                          if (!active) {
+                            e.currentTarget.style.background = PALETTE.surface;
+                            e.currentTarget.style.color = PALETTE.text;
+                          }
+                        },
+                        onMouseOut: (e) => {
+                          if (!active) {
+                            e.currentTarget.style.background = "transparent";
+                            e.currentTarget.style.color = PALETTE.neutralText;
+                          }
+                        },
+                        children: s.label || s.id || `(section ${idx + 1})`
                       }
-                    },
-                    onMouseOut: (e) => {
-                      if (!active) {
-                        e.currentTarget.style.background = "transparent";
-                        e.currentTarget.style.color = PALETTE.neutralText;
-                      }
-                    },
-                    children: s.label || s.id || `(section ${idx + 1})`
-                  }
-                ),
-                /* @__PURE__ */ jsx2(ActionButton, { isQuiet: true, onPress: () => removeSection(idx), "aria-label": "Remove", children: "\u2715" })
-              ] }, idx);
+                    ),
+                    /* @__PURE__ */ jsx2(ActionButton, { isQuiet: true, onPress: () => removeSection(idx), "aria-label": "Remove", children: "\u2715" })
+                  ]
+                },
+                s._uid || idx
+              );
             }),
             /* @__PURE__ */ jsx2("div", { style: { padding: "6px 6px 4px" }, children: /* @__PURE__ */ jsx2(Button, { variant: "secondary", onPress: addSection, UNSAFE_style: { width: "100%", borderRadius: RADIUS.pill }, children: "+ Add section" }) })
           ]
@@ -1318,18 +2087,28 @@ function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, pal
                 onChange: (v) => updateSection(activeSectionIdx, { label: v }),
                 width: "size-3600"
               }
+            ),
+            /* @__PURE__ */ jsx2(
+              TextField,
+              {
+                label: "Sort order",
+                value: String((_a = activeSection.sortOrder) != null ? _a : 0),
+                onChange: (v) => updateSection(activeSectionIdx, { sortOrder: Number(v) || 0 }),
+                width: "size-1200",
+                type: "number"
+              }
             )
           ] })
         ] }),
-        (activeSection.groups || []).map((g, gi) => /* @__PURE__ */ jsx2(
-          GroupEditor,
+        /* @__PURE__ */ jsx2(
+          GroupList,
           {
-            group: g,
-            onChange: (next) => updateGroup(gi, next),
-            onRemove: () => removeGroup(gi)
-          },
-          gi
-        )),
+            groups: sortByOrder(activeSection.groups || []),
+            onReorder: reorderGroups,
+            onUpdate: updateGroup,
+            onRemove: removeGroup
+          }
+        ),
         /* @__PURE__ */ jsx2(Button, { variant: "secondary", onPress: addGroup, children: "+ Add group" })
       ] }) })
     ] })
@@ -1338,6 +2117,13 @@ function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, pal
 
 // web/src/components/SystemConfig.js
 import { Fragment as Fragment2, jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
+var useUserRole = (props) => getUserRoleProvider()(props);
+var ROLE_RANK_LOCAL = { viewer: 0, editor: 1, admin: 2 };
+var hasRole = (userRole, required) => {
+  var _a, _b;
+  if (!required) return true;
+  return ((_a = ROLE_RANK_LOCAL[userRole]) != null ? _a : -1) >= ((_b = ROLE_RANK_LOCAL[required]) != null ? _b : 99);
+};
 var APP_NAV_OFFSET = 64;
 var HERO_HEIGHT = 160;
 var SAVE_BAR_HEIGHT = 64;
@@ -1502,13 +2288,17 @@ function FieldRow({
   displayValue,
   origin,
   inherited,
+  error,
   onFieldChange,
   onUseDefaultChange,
-  sensitivePlaceholder
+  sensitivePlaceholder,
+  onBulkApply,
+  userRole
 }) {
   const allowed = isFieldVisibleAtScope(field, scope.scope);
   const showUseDefault = scope.scope !== "default" && allowed;
-  const editorDisabled = !allowed || showUseDefault && inherited;
+  const rbacOk = hasRole(userRole || "admin", field.requiredRole);
+  const editorDisabled = !allowed || showUseDefault && inherited || !rbacOk;
   const isTextarea = field.type === "textarea";
   const originLabel = origin ? origin.scope === "default" ? "inherited from Default Config" : `set at ${origin.scope}:${origin.scopeId}` : "unset";
   return /* @__PURE__ */ jsxs3(
@@ -1520,7 +2310,8 @@ function FieldRow({
         gap: 16,
         alignItems: isTextarea ? "start" : "center",
         padding: "14px 0",
-        borderBottom: `1px solid ${PALETTE.border}`
+        borderBottom: `1px solid ${PALETTE.border}`,
+        background: error ? "rgba(192,57,43,0.04)" : "transparent"
       },
       children: [
         /* @__PURE__ */ jsxs3("div", { style: { paddingTop: isTextarea ? 6 : 0 }, children: [
@@ -1540,27 +2331,58 @@ function FieldRow({
           ] }),
           /* @__PURE__ */ jsxs3("div", { style: { marginTop: 4, display: "flex", gap: 6, flexWrap: "wrap" }, children: [
             !allowed && /* @__PURE__ */ jsx3(Pill, { tone: "warning", children: "Not configurable here" }),
+            !rbacOk && /* @__PURE__ */ jsxs3(Pill, { tone: "warning", children: [
+              "Requires ",
+              field.requiredRole
+            ] }),
             allowed && scope.scope !== "default" && /* @__PURE__ */ jsx3(Pill, { tone: inherited ? "neutral" : "accent", children: inherited ? originLabel : "overridden" })
           ] })
         ] }),
-        /* @__PURE__ */ jsx3("div", { children: /* @__PURE__ */ jsx3(
-          FieldControl,
-          {
-            field,
-            value: displayValue,
-            disabled: editorDisabled,
-            sensitivePlaceholder,
-            onChange: (v) => onFieldChange(path, v)
-          }
-        ) }),
-        /* @__PURE__ */ jsx3("div", { children: showUseDefault && /* @__PURE__ */ jsx3(
-          Checkbox2,
-          {
-            isSelected: inherited,
-            onChange: (checked) => onUseDefaultChange(path, checked),
-            children: "Use Default"
-          }
-        ) })
+        /* @__PURE__ */ jsxs3("div", { children: [
+          /* @__PURE__ */ jsx3(
+            FieldControl,
+            {
+              field,
+              value: displayValue,
+              disabled: editorDisabled,
+              sensitivePlaceholder,
+              onChange: (v) => onFieldChange(path, v)
+            }
+          ),
+          error && /* @__PURE__ */ jsx3(
+            "div",
+            {
+              role: "alert",
+              style: {
+                marginTop: 6,
+                fontSize: 12,
+                color: PALETTE.danger,
+                fontWeight: 600
+              },
+              children: error
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxs3("div", { style: { display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }, children: [
+          showUseDefault && /* @__PURE__ */ jsx3(
+            Checkbox2,
+            {
+              isSelected: inherited,
+              onChange: (checked) => onUseDefaultChange(path, checked),
+              children: "Use Default"
+            }
+          ),
+          onBulkApply && allowed && /* @__PURE__ */ jsx3(
+            Button2,
+            {
+              variant: "secondary",
+              isQuiet: true,
+              onPress: () => onBulkApply(path, displayValue, field),
+              UNSAFE_style: { fontSize: 11 },
+              children: "Apply to\u2026"
+            }
+          )
+        ] })
       ]
     }
   );
@@ -1576,41 +2398,89 @@ function GroupCard({
   isInheritedAtScope,
   setFieldValue,
   setUseDefault,
-  sensitivePlaceholder
+  sensitivePlaceholder,
+  fieldErrors = {},
+  searchFilter = "",
+  onTest,
+  onBulkApply,
+  userRole
 }) {
-  return /* @__PURE__ */ jsxs3(Card, { padded: false, style: { marginBottom: 16 }, children: [
-    /* @__PURE__ */ jsx3(
-      "button",
+  const lower = searchFilter.trim().toLowerCase();
+  const visibleFields = (group.fields || []).filter((field) => {
+    if (!lower) return true;
+    return String(field.label || "").toLowerCase().includes(lower) || String(field.id || "").toLowerCase().includes(lower);
+  });
+  if (visibleFields.length === 0 && lower) return null;
+  const testField = (group.fields || []).find((f) => f && f.testActionKey);
+  const groupErrorCount = visibleFields.reduce((n, f) => {
+    const path = `${sectionId}/${group.id}/${f.id}`;
+    return fieldErrors[path] ? n + 1 : n;
+  }, 0);
+  return /* @__PURE__ */ jsxs3(Card, { padded: false, style: { marginBottom: 16, borderColor: groupErrorCount ? PALETTE.danger : void 0 }, children: [
+    /* @__PURE__ */ jsxs3(
+      "div",
       {
-        type: "button",
-        onClick: onToggle,
-        "aria-expanded": !collapsed,
         style: {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          width: "100%",
           padding: "14px 20px",
-          background: "transparent",
-          border: 0,
           borderBottom: collapsed ? 0 : `1px solid ${PALETTE.border}`,
-          cursor: "pointer",
-          userSelect: "none",
-          font: "inherit",
-          color: "inherit",
-          textAlign: "left"
+          gap: 12
         },
-        children: /* @__PURE__ */ jsxs3("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-          /* @__PURE__ */ jsx3("span", { style: { color: PALETTE.textMuted, display: "inline-flex" }, children: collapsed ? /* @__PURE__ */ jsx3(ChevronRight, { size: "S" }) : /* @__PURE__ */ jsx3(ChevronDown, { size: "S" }) }),
-          /* @__PURE__ */ jsx3("span", { style: { fontWeight: 700, fontSize: 15, color: PALETTE.text }, children: group.label }),
-          /* @__PURE__ */ jsxs3(Pill, { tone: "neutral", children: [
-            (group.fields || []).length,
-            " fields"
-          ] })
-        ] })
+        children: [
+          /* @__PURE__ */ jsxs3(
+            "button",
+            {
+              type: "button",
+              onClick: onToggle,
+              "aria-expanded": !collapsed,
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flex: 1,
+                background: "transparent",
+                border: 0,
+                cursor: "pointer",
+                userSelect: "none",
+                font: "inherit",
+                color: "inherit",
+                textAlign: "left",
+                padding: 0
+              },
+              children: [
+                /* @__PURE__ */ jsx3("span", { style: { color: PALETTE.textMuted, display: "inline-flex" }, children: collapsed ? /* @__PURE__ */ jsx3(ChevronRight, { size: "S" }) : /* @__PURE__ */ jsx3(ChevronDown, { size: "S" }) }),
+                /* @__PURE__ */ jsx3("span", { style: { fontWeight: 700, fontSize: 15, color: PALETTE.text }, children: group.label }),
+                /* @__PURE__ */ jsxs3(Pill, { tone: "neutral", children: [
+                  visibleFields.length,
+                  " field",
+                  visibleFields.length === 1 ? "" : "s"
+                ] }),
+                groupErrorCount > 0 && /* @__PURE__ */ jsxs3(Pill, { tone: "danger", children: [
+                  groupErrorCount,
+                  " error",
+                  groupErrorCount === 1 ? "" : "s"
+                ] })
+              ]
+            }
+          ),
+          testField && onTest && /* @__PURE__ */ jsxs3(
+            Button2,
+            {
+              variant: "secondary",
+              onPress: () => onTest(group, sectionId),
+              isQuiet: true,
+              children: [
+                "Test ",
+                testField.label || "connection"
+              ]
+            }
+          )
+        ]
       }
     ),
-    !collapsed && /* @__PURE__ */ jsx3("div", { style: { padding: "4px 20px 16px" }, children: (group.fields || []).map((field) => {
+    !collapsed && /* @__PURE__ */ jsx3("div", { style: { padding: "4px 20px 16px" }, children: visibleFields.map((field) => {
       const path = `${sectionId}/${group.id}/${field.id}`;
       const inherited = isInheritedAtScope(path);
       const displayValue = getDisplayValue(path, coerceDefault(field));
@@ -1623,9 +2493,12 @@ function GroupCard({
           displayValue,
           origin: getOrigin(path),
           inherited,
+          error: fieldErrors[path],
           onFieldChange: setFieldValue,
           onUseDefaultChange: setUseDefault,
-          sensitivePlaceholder
+          sensitivePlaceholder,
+          onBulkApply,
+          userRole
         },
         path
       );
@@ -1724,8 +2597,8 @@ function Sidebar({ sections, activeSectionId, onSelect }) {
     }
   );
 }
-function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx }) {
-  var _a, _b;
+function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx, callerProps, userRole }) {
+  var _a, _b, _c, _d;
   const {
     scope,
     scopeTree,
@@ -1742,9 +2615,105 @@ function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx }
     save,
     reset,
     refresh,
+    fieldErrors,
+    hasErrors,
+    computeDiff,
     SENSITIVE_PLACEHOLDER: SENSITIVE_PLACEHOLDER2
   } = configCtx;
-  const sections = (schema == null ? void 0 : schema.sections) || [];
+  const [searchFilter, setSearchFilter] = useState5("");
+  const [diffOpen, setDiffOpen] = useState5(false);
+  const [diffRows, setDiffRows] = useState5([]);
+  const [testStatus, setTestStatus] = useState5({ tone: "neutral", message: "" });
+  const [bulk, setBulk] = useState5({ open: false, path: null, value: null, field: null, targets: /* @__PURE__ */ new Set(), busy: false, result: null });
+  const openBulkApply = useCallback4((path, value, field) => {
+    setBulk({ open: true, path, value, field, targets: /* @__PURE__ */ new Set(), busy: false, result: null });
+  }, []);
+  const toggleBulkTarget = (key) => setBulk((prev) => {
+    const next = new Set(prev.targets);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return { ...prev, targets: next };
+  });
+  const closeBulk = () => setBulk((prev) => ({ ...prev, open: false }));
+  const openDiffPreview = () => {
+    setDiffRows(computeDiff());
+    setDiffOpen(true);
+  };
+  const confirmSave = async () => {
+    setDiffOpen(false);
+    await save();
+  };
+  const runBulkApply = useCallback4(async () => {
+    var _a2;
+    if (!bulk.path || bulk.targets.size === 0 || !callerProps) return;
+    setBulk((prev) => ({ ...prev, busy: true, result: null }));
+    const targets = Array.from(bulk.targets).map((k) => {
+      const [s, ...rest] = k.split("::");
+      return { scope: s, scopeId: rest.join("::") };
+    });
+    try {
+      const res = await callAction(callerProps, getActionKey("systemConfigBulkSave"), "", {
+        values: { [bulk.path]: bulk.value },
+        sensitivePaths: ((_a2 = bulk.field) == null ? void 0 : _a2.sensitive) ? [bulk.path] : [],
+        targets,
+        actor: "bulk-apply"
+      });
+      const body = (res == null ? void 0 : res.body) || res;
+      setBulk((prev) => ({ ...prev, busy: false, result: body }));
+    } catch (e) {
+      setBulk((prev) => ({ ...prev, busy: false, result: { ok: false, error: e.message } }));
+    }
+  }, [bulk.path, bulk.value, bulk.field, bulk.targets, callerProps]);
+  const handleTestGroup = useCallback4(async (group, sectionId) => {
+    const testField = (group.fields || []).find((f) => f && f.testActionKey);
+    if (!testField || !callerProps) return;
+    setTestStatus({ tone: "notice", message: `Testing ${group.label}\u2026` });
+    try {
+      const payload = {};
+      for (const f of group.fields || []) {
+        const path = `${sectionId}/${group.id}/${f.id}`;
+        payload[f.id] = getDisplayValue(path, coerceDefault(f));
+      }
+      const res = await callAction(callerProps, getActionKey(testField.testActionKey), "", payload);
+      const body = (res == null ? void 0 : res.body) || res;
+      if (body && body.ok) {
+        setTestStatus({ tone: "positive", message: body.message || "Connection OK" });
+      } else {
+        setTestStatus({ tone: "negative", message: body && body.message || "Test failed" });
+      }
+    } catch (e) {
+      setTestStatus({ tone: "negative", message: e.message || "Test failed" });
+    }
+  }, [callerProps, getDisplayValue]);
+  const allSections = useMemo3(() => sortByOrder((schema == null ? void 0 : schema.sections) || []), [schema]);
+  const sections = useMemo3(() => {
+    const q = searchFilter.trim().toLowerCase();
+    const withSortedChildren = allSections.map((section) => ({
+      ...section,
+      groups: sortByOrder(section.groups || []).map((g) => ({
+        ...g,
+        fields: sortByOrder(g.fields || [])
+      }))
+    }));
+    if (!q) return withSortedChildren;
+    const match = (s) => String(s || "").toLowerCase().includes(q);
+    const out = [];
+    for (const section of withSortedChildren) {
+      const groups = [];
+      for (const group of section.groups || []) {
+        const fields = (group.fields || []).filter(
+          (f) => match(f.label) || match(f.id)
+        );
+        if (fields.length || match(group.label) || match(group.id)) {
+          groups.push({ ...group, fields: fields.length ? fields : group.fields || [] });
+        }
+      }
+      if (groups.length || match(section.label) || match(section.id)) {
+        out.push({ ...section, groups });
+      }
+    }
+    return out;
+  }, [allSections, searchFilter]);
   const [activeSectionId, setActiveSectionId] = useState5((_a = sections[0]) == null ? void 0 : _a.id);
   const activeSection = useMemo3(() => {
     if (sections.length === 0) return null;
@@ -1763,7 +2732,7 @@ function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx }
     for (const g of (activeSection == null ? void 0 : activeSection.groups) || []) next[g.id] = collapsed;
     setCollapsedGroups(next);
   };
-  if (sections.length === 0) {
+  if (allSections.length === 0) {
     return /* @__PURE__ */ jsx3(Card, { children: /* @__PURE__ */ jsxs3("div", { style: { textAlign: "center", padding: "40px 20px" }, children: [
       /* @__PURE__ */ jsx3("div", { style: {
         display: "inline-flex",
@@ -1774,13 +2743,13 @@ function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx }
         color: PALETTE.accent
       }, children: /* @__PURE__ */ jsx3(Settings, { size: "L" }) }),
       /* @__PURE__ */ jsx3(Heading2, { level: 3, marginTop: 0, children: "No configuration schema yet" }),
-      /* @__PURE__ */ jsx3(Text2, { UNSAFE_style: { color: PALETTE.textMuted, maxWidth: 460, display: "inline-block" }, children: "Open the Schema Designer to define sections, groups, and fields for your sync integrations." }),
-      /* @__PURE__ */ jsx3(Flex2, { justifyContent: "center", gap: "size-150", marginTop: "size-200", children: /* @__PURE__ */ jsx3(Button2, { variant: "cta", onPress: onEditSchema, children: "Open Schema Designer" }) })
+      /* @__PURE__ */ jsx3(Text2, { UNSAFE_style: { color: PALETTE.textMuted, maxWidth: 460, display: "inline-block" }, children: userRole === "admin" ? "Open the Schema Designer to define sections, groups, and fields for your sync integrations." : "A schema hasn\u2019t been published yet. Ask an admin to set it up \u2014 schema editing is restricted to the admin role." }),
+      userRole === "admin" && /* @__PURE__ */ jsx3(Flex2, { justifyContent: "center", gap: "size-150", marginTop: "size-200", children: /* @__PURE__ */ jsx3(Button2, { variant: "cta", onPress: onEditSchema, children: "Open Schema Designer" }) })
     ] }) });
   }
   return /* @__PURE__ */ jsxs3(Fragment2, { children: [
     error && /* @__PURE__ */ jsx3(Well2, { marginBottom: "size-200", UNSAFE_style: { borderColor: PALETTE.danger }, children: /* @__PURE__ */ jsx3(Text2, { UNSAFE_style: { color: PALETTE.danger }, children: error }) }),
-    /* @__PURE__ */ jsx3(
+    /* @__PURE__ */ jsxs3(
       "div",
       {
         style: {
@@ -1798,23 +2767,204 @@ function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx }
           boxShadow: SHADOW.floating,
           zIndex: 10
         },
-        children: /* @__PURE__ */ jsxs3(Flex2, { gap: "size-150", alignItems: "center", justifyContent: "space-between", children: [
-          /* @__PURE__ */ jsx3("div", { style: { fontSize: 12, color: PALETTE.textMuted }, children: dirtyCount > 0 ? /* @__PURE__ */ jsxs3("span", { style: { color: PALETTE.warning, fontWeight: 600 }, children: [
-            dirtyCount,
-            " unsaved change",
-            dirtyCount === 1 ? "" : "s"
-          ] }) : savedAt && !saving ? /* @__PURE__ */ jsxs3("span", { style: { color: PALETTE.success, fontWeight: 600 }, children: [
-            "\u2713 Saved ",
-            new Date(savedAt).toLocaleTimeString()
-          ] }) : "All changes saved" }),
-          /* @__PURE__ */ jsxs3(Flex2, { gap: "size-100", alignItems: "center", children: [
-            /* @__PURE__ */ jsx3(Button2, { variant: "secondary", onPress: refresh, isDisabled: saving || loading, children: "Reload" }),
-            /* @__PURE__ */ jsx3(Button2, { variant: "secondary", onPress: reset, isDisabled: saving || dirtyCount === 0, children: "Reset" }),
-            /* @__PURE__ */ jsx3(Button2, { variant: "cta", onPress: save, isDisabled: saving || loading || dirtyCount === 0, children: saving ? "Saving\u2026" : `Save Config${dirtyCount ? ` (${dirtyCount})` : ""}` })
-          ] })
-        ] })
+        children: [
+          /* @__PURE__ */ jsxs3(Flex2, { gap: "size-150", alignItems: "center", justifyContent: "space-between", children: [
+            /* @__PURE__ */ jsx3("div", { style: { fontSize: 12, color: PALETTE.textMuted }, children: dirtyCount > 0 ? /* @__PURE__ */ jsxs3("span", { style: { color: PALETTE.warning, fontWeight: 600 }, children: [
+              dirtyCount,
+              " unsaved change",
+              dirtyCount === 1 ? "" : "s"
+            ] }) : savedAt && !saving ? /* @__PURE__ */ jsxs3("span", { style: { color: PALETTE.success, fontWeight: 600 }, children: [
+              "\u2713 Saved ",
+              new Date(savedAt).toLocaleTimeString()
+            ] }) : "All changes saved" }),
+            /* @__PURE__ */ jsxs3(Flex2, { gap: "size-100", alignItems: "center", children: [
+              /* @__PURE__ */ jsx3(
+                SearchField,
+                {
+                  "aria-label": "Filter sections, groups, fields",
+                  placeholder: "Search fields\u2026",
+                  value: searchFilter,
+                  onChange: setSearchFilter,
+                  width: "size-2400"
+                }
+              ),
+              /* @__PURE__ */ jsx3(Button2, { variant: "secondary", onPress: refresh, isDisabled: saving || loading, children: "Reload" }),
+              /* @__PURE__ */ jsx3(Button2, { variant: "secondary", onPress: reset, isDisabled: saving || dirtyCount === 0, children: "Reset" }),
+              /* @__PURE__ */ jsx3(
+                Button2,
+                {
+                  variant: "cta",
+                  onPress: openDiffPreview,
+                  isDisabled: saving || loading || dirtyCount === 0 || hasErrors,
+                  children: saving ? "Saving\u2026" : `Review & Save${dirtyCount ? ` (${dirtyCount})` : ""}`
+                }
+              )
+            ] })
+          ] }),
+          testStatus.message && /* @__PURE__ */ jsx3(View2, { marginTop: "size-100", children: /* @__PURE__ */ jsx3(StatusLight, { variant: testStatus.tone, children: testStatus.message }) })
+        ]
       }
     ),
+    /* @__PURE__ */ jsxs3(
+      DialogTrigger,
+      {
+        isOpen: diffOpen,
+        onOpenChange: (open) => setDiffOpen(open),
+        children: [
+          /* @__PURE__ */ jsx3("div", { style: { display: "none" }, "aria-hidden": "true", children: "trigger" }),
+          /* @__PURE__ */ jsxs3(Dialog, { size: "L", children: [
+            /* @__PURE__ */ jsxs3(Heading2, { children: [
+              "Confirm ",
+              diffRows.length,
+              " change",
+              diffRows.length === 1 ? "" : "s"
+            ] }),
+            /* @__PURE__ */ jsx3(Header, { children: /* @__PURE__ */ jsxs3(Text2, { children: [
+              "scope = ",
+              scope.scope,
+              ":",
+              scope.scopeId
+            ] }) }),
+            /* @__PURE__ */ jsx3(Divider2, {}),
+            /* @__PURE__ */ jsx3(Content, { children: diffRows.length === 0 ? /* @__PURE__ */ jsx3(Text2, { children: "Nothing to save." }) : /* @__PURE__ */ jsx3("div", { style: { maxHeight: 360, overflow: "auto" }, children: diffRows.map((r) => /* @__PURE__ */ jsxs3(
+              "div",
+              {
+                style: {
+                  padding: "10px 0",
+                  borderBottom: `1px solid ${PALETTE.border}`,
+                  fontSize: 13
+                },
+                children: [
+                  /* @__PURE__ */ jsxs3("div", { style: { fontWeight: 600, color: PALETTE.text }, children: [
+                    r.sectionLabel,
+                    " \u203A ",
+                    r.groupLabel,
+                    " \u203A ",
+                    r.label,
+                    /* @__PURE__ */ jsx3("span", { style: {
+                      marginLeft: 8,
+                      fontSize: 11,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.4,
+                      color: r.action === "create" ? PALETTE.success : r.action === "inherit" ? PALETTE.warning : PALETTE.accent
+                    }, children: r.action })
+                  ] }),
+                  /* @__PURE__ */ jsx3("div", { style: { color: PALETTE.textMuted, fontSize: 12, marginTop: 2 }, children: r.path }),
+                  /* @__PURE__ */ jsxs3("div", { style: {
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 8,
+                    marginTop: 6,
+                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    fontSize: 12
+                  }, children: [
+                    /* @__PURE__ */ jsxs3("div", { children: [
+                      /* @__PURE__ */ jsx3("div", { style: { color: PALETTE.textMuted }, children: "old" }),
+                      /* @__PURE__ */ jsx3("div", { style: { color: PALETTE.danger, wordBreak: "break-all" }, children: r.oldValue == null ? "\u2205" : String(r.oldValue) })
+                    ] }),
+                    /* @__PURE__ */ jsxs3("div", { children: [
+                      /* @__PURE__ */ jsx3("div", { style: { color: PALETTE.textMuted }, children: "new" }),
+                      /* @__PURE__ */ jsx3("div", { style: { color: PALETTE.success, wordBreak: "break-all" }, children: r.action === "inherit" ? "(inherit from default)" : r.newValue == null ? "\u2205" : String(r.newValue) })
+                    ] })
+                  ] })
+                ]
+              },
+              r.path
+            )) }) }),
+            /* @__PURE__ */ jsxs3(ButtonGroup, { children: [
+              /* @__PURE__ */ jsx3(Button2, { variant: "secondary", onPress: () => setDiffOpen(false), children: "Cancel" }),
+              /* @__PURE__ */ jsx3(Button2, { variant: "cta", onPress: confirmSave, isDisabled: diffRows.length === 0, children: "Confirm & Save" })
+            ] })
+          ] })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxs3(DialogTrigger, { isOpen: bulk.open, onOpenChange: (o) => {
+      if (!o) closeBulk();
+    }, children: [
+      /* @__PURE__ */ jsx3("div", { style: { display: "none" }, "aria-hidden": "true", children: "trigger" }),
+      /* @__PURE__ */ jsxs3(Dialog, { size: "L", children: [
+        /* @__PURE__ */ jsx3(Heading2, { children: "Apply value to scopes" }),
+        /* @__PURE__ */ jsx3(Divider2, {}),
+        /* @__PURE__ */ jsxs3(Content, { children: [
+          /* @__PURE__ */ jsxs3("div", { style: { marginBottom: 16 }, children: [
+            /* @__PURE__ */ jsx3("div", { style: { fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", color: PALETTE.textMuted, marginBottom: 6 }, children: "Path" }),
+            /* @__PURE__ */ jsx3("code", { style: {
+              display: "block",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontSize: 12,
+              fontWeight: 600,
+              color: PALETTE.text,
+              background: PALETTE.surfaceMuted || "rgba(0,0,0,0.05)",
+              border: `1px solid ${PALETTE.border}`,
+              borderRadius: 6,
+              padding: "6px 10px",
+              whiteSpace: "nowrap",
+              overflowX: "auto"
+            }, children: bulk.path })
+          ] }),
+          /* @__PURE__ */ jsxs3("div", { style: { marginBottom: 12, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }, children: [
+            /* @__PURE__ */ jsx3("div", { style: { color: PALETTE.textMuted }, children: "Will write" }),
+            /* @__PURE__ */ jsx3("div", { style: { color: PALETTE.success, wordBreak: "break-all" }, children: ((_c = bulk.field) == null ? void 0 : _c.sensitive) ? "[sensitive \u2014 will encrypt]" : String((_d = bulk.value) != null ? _d : "") })
+          ] }),
+          (() => {
+            const allowWebsites = isFieldVisibleAtScope(bulk.field, "websites");
+            const allowStores = isFieldVisibleAtScope(bulk.field, "stores");
+            if (!allowWebsites && !allowStores) {
+              return /* @__PURE__ */ jsx3(Text2, { UNSAFE_style: { color: PALETTE.textMuted }, children: "This field is only configurable at the Default scope, so there are no other scopes to apply it to." });
+            }
+            const cols = [allowWebsites, allowStores].filter(Boolean).length;
+            return /* @__PURE__ */ jsxs3("div", { style: { display: "grid", gridTemplateColumns: cols === 2 ? "1fr 1fr" : "1fr", gap: 16 }, children: [
+              allowWebsites && /* @__PURE__ */ jsxs3("div", { children: [
+                /* @__PURE__ */ jsx3("div", { style: { fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", color: PALETTE.textMuted, marginBottom: 6 }, children: "Websites" }),
+                (scopeTree.websites || []).length === 0 && /* @__PURE__ */ jsx3(Text2, { UNSAFE_style: { color: PALETTE.textMuted }, children: "None" }),
+                (scopeTree.websites || []).map((w) => {
+                  const key = `websites::${w.id}`;
+                  return /* @__PURE__ */ jsx3("div", { children: /* @__PURE__ */ jsxs3(Checkbox2, { isSelected: bulk.targets.has(key), onChange: () => toggleBulkTarget(key), children: [
+                    w.name || w.code,
+                    " ",
+                    /* @__PURE__ */ jsxs3("span", { style: { color: PALETTE.textMuted, fontSize: 11 }, children: [
+                      "(",
+                      w.code,
+                      ")"
+                    ] })
+                  ] }) }, key);
+                })
+              ] }),
+              allowStores && /* @__PURE__ */ jsxs3("div", { children: [
+                /* @__PURE__ */ jsx3("div", { style: { fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: "uppercase", color: PALETTE.textMuted, marginBottom: 6 }, children: "Stores" }),
+                (scopeTree.stores || []).length === 0 && /* @__PURE__ */ jsx3(Text2, { UNSAFE_style: { color: PALETTE.textMuted }, children: "None" }),
+                (scopeTree.stores || []).map((s) => {
+                  const key = `stores::${s.id}`;
+                  return /* @__PURE__ */ jsx3("div", { children: /* @__PURE__ */ jsxs3(Checkbox2, { isSelected: bulk.targets.has(key), onChange: () => toggleBulkTarget(key), children: [
+                    s.name || s.code,
+                    " ",
+                    /* @__PURE__ */ jsxs3("span", { style: { color: PALETTE.textMuted, fontSize: 11 }, children: [
+                      "(",
+                      s.code,
+                      ")"
+                    ] })
+                  ] }) }, key);
+                })
+              ] })
+            ] });
+          })(),
+          bulk.result && /* @__PURE__ */ jsx3(View2, { marginTop: "size-200", children: /* @__PURE__ */ jsx3(StatusLight, { variant: bulk.result.ok ? "positive" : "negative", children: bulk.result.ok ? `Applied to ${bulk.result.succeeded}/${bulk.result.total}` : bulk.result.error || `${bulk.result.failed} of ${bulk.result.total} failed` }) })
+        ] }),
+        /* @__PURE__ */ jsxs3(ButtonGroup, { children: [
+          /* @__PURE__ */ jsx3(Button2, { variant: "secondary", onPress: closeBulk, isDisabled: bulk.busy, children: "Close" }),
+          /* @__PURE__ */ jsx3(
+            Button2,
+            {
+              variant: "cta",
+              onPress: runBulkApply,
+              isDisabled: bulk.busy || bulk.targets.size === 0,
+              children: bulk.busy ? "Applying\u2026" : `Apply to ${bulk.targets.size} scope${bulk.targets.size === 1 ? "" : "s"}`
+            }
+          )
+        ] })
+      ] })
+    ] }),
     /* @__PURE__ */ jsxs3("div", { style: { display: "flex", gap: 24, alignItems: "flex-start" }, children: [
       /* @__PURE__ */ jsx3(
         Sidebar,
@@ -1853,7 +3003,12 @@ function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx }
             isInheritedAtScope,
             setFieldValue,
             setUseDefault,
-            sensitivePlaceholder: SENSITIVE_PLACEHOLDER2
+            sensitivePlaceholder: SENSITIVE_PLACEHOLDER2,
+            fieldErrors,
+            searchFilter,
+            onTest: handleTestGroup,
+            onBulkApply: openBulkApply,
+            userRole
           },
           group.id
         )),
@@ -2005,7 +3160,8 @@ function PageHeader({
   onScopeChange,
   onReloadStores,
   onOpenTools,
-  toolsOpen
+  toolsOpen,
+  userRole
 }) {
   const isSchemaMode = mode === "schema";
   return /* @__PURE__ */ jsxs3(
@@ -2072,7 +3228,7 @@ function PageHeader({
             /* @__PURE__ */ jsx3(ActionButton2, { onPress: onOpenTools, "aria-label": "Open tools", isQuiet: !toolsOpen, children: /* @__PURE__ */ jsx3(CloudUpload, {}) }),
             /* @__PURE__ */ jsx3(Tooltip, { children: "Legacy migration tools" })
           ] }),
-          /* @__PURE__ */ jsxs3(TooltipTrigger, { children: [
+          userRole === "admin" && /* @__PURE__ */ jsxs3(TooltipTrigger, { children: [
             /* @__PURE__ */ jsx3(ActionButton2, { onPress: () => setMode("schema"), "aria-label": "Edit schema", children: /* @__PURE__ */ jsx3(Edit, {}) }),
             /* @__PURE__ */ jsx3(Tooltip, { children: "Edit schema" })
           ] })
@@ -2184,6 +3340,8 @@ function ToolsPanel({
   ] });
 }
 function SystemConfig(props) {
+  const { role: userRole } = useUserRole(props);
+  const propsWithRole = useMemo3(() => ({ ...props, userRole }), [props, userRole]);
   const {
     schema,
     saveSchema,
@@ -2191,8 +3349,11 @@ function SystemConfig(props) {
     loading: schemaLoading,
     saving: schemaSaving,
     error: schemaError
-  } = useSystemConfigSchema(props);
+  } = useSystemConfigSchema(propsWithRole);
   const [mode, setMode] = useState5("values");
+  useEffect5(() => {
+    if (mode === "schema" && userRole && userRole !== "admin") setMode("values");
+  }, [mode, userRole]);
   const [toolsOpen, setToolsOpen] = useState5(false);
   const [exporting, setExporting] = useState5(false);
   const [importing, setImporting] = useState5(false);
@@ -2217,7 +3378,7 @@ function SystemConfig(props) {
     };
   }, [mode]);
   const configCtx = useSystemConfig(
-    props,
+    propsWithRole,
     mode === "values" ? schema : { sections: [] }
   );
   const { scope, setScope, scopeTree, refreshScopeTree } = configCtx;
@@ -2509,7 +3670,8 @@ function SystemConfig(props) {
               onScopeChange,
               onReloadStores: refreshScopeTree,
               onOpenTools: () => setToolsOpen((o) => !o),
-              toolsOpen
+              toolsOpen,
+              userRole
             }
           ),
           /* @__PURE__ */ jsxs3("div", { style: { paddingTop: 24 }, children: [
@@ -2547,7 +3709,9 @@ function SystemConfig(props) {
                 onEditSchema: () => setMode("schema"),
                 toolsOpen,
                 setToolsOpen,
-                configCtx
+                configCtx,
+                callerProps: propsWithRole,
+                userRole
               }
             )
           ] })
@@ -2573,11 +3737,20 @@ var DEFAULT_ACTION_KEYS = {
   syncStoreMappings: "CommerceAdminManagement/sync-store-mappings-from-commerce",
   commerceConnectionStatus: "CommerceAdminManagement/commerce-connection-status",
   commerceConnectionTest: "CommerceAdminManagement/commerce-connection-test",
-  commerceConnectionSave: "CommerceAdminManagement/commerce-connection-save"
+  commerceConnectionSave: "CommerceAdminManagement/commerce-connection-save",
+  systemConfigBulkSave: "CommerceAdminManagement/system-config-bulk-save"
 };
 var extensionId = "CommerceAdminManagement";
 var actionUrls = {};
 var actionKeys = { ...DEFAULT_ACTION_KEYS };
+var userRoleProvider = null;
+var roleBadgeComponent = null;
+function getUserRoleProvider() {
+  return userRoleProvider || (() => ({ role: "admin", loading: false, groups: [], profile: null }));
+}
+function getRoleBadgeComponent() {
+  return roleBadgeComponent;
+}
 var builtinNavItems = Array.isArray(nav_default && nav_default.items) ? nav_default.items : [];
 var extraNavItems = [];
 var extraPages = {};
@@ -2588,13 +3761,47 @@ function getActionKey(name) {
   return actionKeys[name] || name;
 }
 function getActionUrl(actionKey) {
-  return actionUrls[actionKey];
+  if (actionUrls[actionKey]) return actionUrls[actionKey];
+  const known = Object.values(actionUrls).find((u) => typeof u === "string" && /\/api\/v1\/web\//.test(u));
+  if (known) {
+    const m = String(known).match(/^(https?:\/\/[^/]+\/api\/v1\/web\/)/);
+    if (m) return m[1] + actionKey;
+  }
+  return void 0;
 }
 function getNavItems() {
   const byId = /* @__PURE__ */ new Map();
-  for (const it of builtinNavItems) byId.set(it.id, it);
-  for (const it of extraNavItems) byId.set(it.id, { ...byId.get(it.id), ...it });
-  return Array.from(byId.values());
+  const clone = (it) => ({ ...it, children: Array.isArray(it.children) ? it.children.map((c) => ({ ...c })) : void 0 });
+  for (const it of builtinNavItems) byId.set(it.id, clone(it));
+  for (const it of extraNavItems) byId.set(it.id, { ...byId.get(it.id), ...clone(it) });
+  const all = Array.from(byId.values());
+  const topLevel = [];
+  for (const it of all) {
+    if (it.parentId && byId.has(it.parentId)) {
+      const parent = byId.get(it.parentId);
+      parent.children = Array.isArray(parent.children) ? parent.children : [];
+      if (!parent.children.some((c) => c.id === it.id)) {
+        const { parentId, ...leaf } = it;
+        parent.children.push(leaf);
+      }
+    } else {
+      topLevel.push(it);
+    }
+  }
+  return topLevel;
+}
+function flattenNavItems(items = getNavItems()) {
+  const out = [];
+  for (const it of items || []) {
+    if (Array.isArray(it.children) && it.children.length) {
+      for (const c of it.children) {
+        if (c && c.id && c.path) out.push({ ...c, parentId: it.id });
+      }
+    } else if (it && it.id && it.path) {
+      out.push(it);
+    }
+  }
+  return out;
 }
 function getPageComponent(id) {
   if (extraPages && extraPages[id]) return extraPages[id];
@@ -2605,8 +3812,12 @@ function configureWeb({
   actionUrls: nextActionUrls,
   actionKeys: nextActionKeys,
   extraNav: nextExtraNav,
-  extraPages: nextExtraPages
+  extraPages: nextExtraPages,
+  userRoleProvider: nextUserRoleProvider,
+  roleBadge: nextRoleBadge
 } = {}) {
+  if (typeof nextUserRoleProvider === "function") userRoleProvider = nextUserRoleProvider;
+  if (nextRoleBadge != null) roleBadgeComponent = nextRoleBadge;
   if (nextExtensionId != null) {
     extensionId = String(nextExtensionId);
   }
@@ -2617,15 +3828,25 @@ function configureWeb({
     actionKeys = { ...actionKeys, ...nextActionKeys };
   }
   if (Array.isArray(nextExtraNav)) {
-    extraNavItems = nextExtraNav.filter((it) => it && it.id && it.path);
+    const byId = new Map(extraNavItems.map((it) => [it.id, it]));
+    for (const it of nextExtraNav) {
+      if (it && it.id && (it.path || Array.isArray(it.children) && it.children.length)) {
+        byId.set(it.id, it);
+      }
+    }
+    extraNavItems = Array.from(byId.values());
   }
   if (nextExtraPages && typeof nextExtraPages === "object") {
-    extraPages = { ...nextExtraPages };
+    extraPages = { ...extraPages, ...nextExtraPages };
   }
 }
 
 // web/src/components/AppSectionNav.js
+import React2, { useEffect as useEffect6, useRef as useRef3, useState as useState6, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
+import { Provider, lightTheme } from "@adobe/react-spectrum";
 import { useLocation, useNavigate } from "react-router-dom";
+import ChevronDown2 from "@spectrum-icons/workflow/ChevronDown";
 
 // web/src/nav-icons.js
 import Settings2 from "@spectrum-icons/workflow/Settings";
@@ -2649,40 +3870,167 @@ function getNavIcon(name) {
 }
 
 // web/src/components/AppSectionNav.js
-import { jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
+import { Fragment as Fragment3, jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
 function AppSectionNav({ rightSlot } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const items = getNavItems();
-  const activeKey = items.some((it) => it.path === location.pathname) ? location.pathname : items[0] && items[0].path || "/";
+  const activeId = (() => {
+    var _a;
+    for (const it of items) {
+      if (Array.isArray(it.children)) {
+        for (const c of it.children) {
+          if (c.path === location.pathname) return it.id;
+        }
+      } else if (it.path === location.pathname) {
+        return it.id;
+      }
+    }
+    return (_a = items[0]) == null ? void 0 : _a.id;
+  })();
   return /* @__PURE__ */ jsxs4("div", { className: "sm-tab-bar", children: [
-    /* @__PURE__ */ jsx4("div", { className: "sm-tab-bar__track", role: "tablist", "aria-label": "Application sections", children: items.map(({ id, path, label, icon }) => {
-      const Icon = getNavIcon(icon);
-      const active = path === activeKey;
-      return /* @__PURE__ */ jsxs4(
-        "button",
-        {
-          type: "button",
-          role: "tab",
-          "aria-selected": active,
-          className: `sm-tab${active ? " is-active" : ""}`,
-          onClick: () => {
-            if (!active) navigate(path);
+    /* @__PURE__ */ jsx4("div", { className: "sm-tab-bar__track", role: "tablist", "aria-label": "Application sections", children: items.map((item) => {
+      if (Array.isArray(item.children) && item.children.length) {
+        return /* @__PURE__ */ jsx4(
+          ParentTab,
+          {
+            item,
+            isActive: item.id === activeId,
+            activePath: location.pathname,
+            onSelect: (path) => navigate(path)
           },
-          children: [
-            /* @__PURE__ */ jsx4("span", { className: "sm-tab__icon", children: /* @__PURE__ */ jsx4(Icon, { size: "XS" }) }),
-            label
-          ]
+          item.id
+        );
+      }
+      return /* @__PURE__ */ jsx4(
+        LeafTab,
+        {
+          item,
+          isActive: item.id === activeId,
+          onSelect: () => navigate(item.path)
         },
-        id
+        item.id
       );
     }) }),
     rightSlot ? /* @__PURE__ */ jsx4("div", { className: "sm-tab-bar__actions", children: rightSlot }) : null
   ] });
 }
+function LeafTab({ item, isActive, onSelect }) {
+  const Icon = getNavIcon(item.icon);
+  return /* @__PURE__ */ jsxs4(
+    "button",
+    {
+      type: "button",
+      role: "tab",
+      "aria-selected": isActive,
+      className: `sm-tab${isActive ? " is-active" : ""}`,
+      onClick: () => {
+        if (!isActive) onSelect();
+      },
+      children: [
+        /* @__PURE__ */ jsx4("span", { className: "sm-tab__icon", children: /* @__PURE__ */ jsx4(Icon, { size: "XS" }) }),
+        item.label
+      ]
+    }
+  );
+}
+function ParentTab({ item, isActive, activePath, onSelect }) {
+  const Icon = getNavIcon(item.icon);
+  const [open, setOpen] = useState6(false);
+  const [position, setPosition] = useState6({ top: 0, left: 0 });
+  const triggerRef = useRef3(null);
+  const menuRef = useRef3(null);
+  const recompute = () => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    setPosition({ top: r.bottom + 6, left: r.left });
+  };
+  useLayoutEffect(() => {
+    if (open) recompute();
+  }, [open]);
+  useEffect6(() => {
+    if (!open) return void 0;
+    const onDocClick = (e) => {
+      const t = e.target;
+      if (triggerRef.current && triggerRef.current.contains(t)) return;
+      if (menuRef.current && menuRef.current.contains(t)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onScrollOrResize = () => recompute();
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [open]);
+  const trigger = /* @__PURE__ */ jsxs4(
+    "button",
+    {
+      ref: triggerRef,
+      type: "button",
+      role: "tab",
+      "aria-haspopup": "menu",
+      "aria-expanded": open,
+      "aria-selected": isActive,
+      className: `sm-tab sm-tab--parent${isActive ? " is-active" : ""}${open ? " is-open" : ""}`,
+      onClick: () => setOpen((o) => !o),
+      children: [
+        /* @__PURE__ */ jsx4("span", { className: "sm-tab__icon", children: /* @__PURE__ */ jsx4(Icon, { size: "XS" }) }),
+        item.label,
+        /* @__PURE__ */ jsx4("span", { className: "sm-tab__chevron", "aria-hidden": "true", children: /* @__PURE__ */ jsx4(ChevronDown2, { size: "XS" }) })
+      ]
+    }
+  );
+  const menu = open ? createPortal(
+    /* @__PURE__ */ jsx4(Provider, { theme: lightTheme, colorScheme: "light", UNSAFE_className: "sm-submenu-portal-host", children: /* @__PURE__ */ jsx4(
+      "div",
+      {
+        ref: menuRef,
+        className: "sm-submenu sm-submenu--portal",
+        role: "menu",
+        "aria-label": `${item.label} submenu`,
+        style: { top: position.top, left: position.left },
+        children: item.children.map((c) => {
+          const ChildIcon = getNavIcon(c.icon);
+          const childActive = c.path === activePath;
+          return /* @__PURE__ */ jsxs4(
+            "button",
+            {
+              type: "button",
+              role: "menuitem",
+              className: `sm-submenu__item${childActive ? " is-active" : ""}`,
+              onClick: () => {
+                setOpen(false);
+                onSelect(c.path);
+              },
+              children: [
+                /* @__PURE__ */ jsx4("span", { className: "sm-submenu__icon", children: /* @__PURE__ */ jsx4(ChildIcon, { size: "XS" }) }),
+                /* @__PURE__ */ jsx4("span", { className: "sm-submenu__label", children: c.label })
+              ]
+            },
+            c.id
+          );
+        })
+      }
+    ) }),
+    document.body
+  ) : null;
+  return /* @__PURE__ */ jsxs4(Fragment3, { children: [
+    trigger,
+    menu
+  ] });
+}
 
 // web/src/components/CommerceSetupWizard.js
-import React2, { useState as useState6 } from "react";
+import React3, { useMemo as useMemo4, useState as useState7 } from "react";
 import {
   View as View3,
   Flex as Flex3,
@@ -2690,55 +4038,69 @@ import {
   Text as Text3,
   TextField as TextField3,
   Button as Button3,
-  ButtonGroup,
+  ButtonGroup as ButtonGroup2,
   ProgressCircle as ProgressCircle3,
-  StatusLight,
+  StatusLight as StatusLight2,
   Divider as Divider3,
   Form,
+  Well as Well3,
   Radio,
   RadioGroup
 } from "@adobe/react-spectrum";
 import { jsx as jsx5, jsxs as jsxs5 } from "react/jsx-runtime";
-var OAUTH1A_FIELDS = [
-  { key: "baseUrl", label: "Commerce base URL", placeholder: "https://store.example.com/", type: "text", required: true },
-  { key: "consumerKey", label: "Consumer key", placeholder: "", type: "text", required: true },
-  { key: "consumerSecret", label: "Consumer secret", placeholder: "", type: "password", required: true },
-  { key: "accessToken", label: "Access token", placeholder: "", type: "text", required: true },
-  { key: "accessTokenSecret", label: "Access token secret", placeholder: "", type: "password", required: true }
-];
-var ACCS_FIELDS = [
-  { key: "baseUrl", label: "Commerce REST base URL (api host + tenant id)", placeholder: "https://<region>-sandbox.api.commerce.adobe.com/<tenant-id>/", type: "text", required: true },
-  { key: "imsApiKey", label: "IMS API key (optional)", placeholder: "Defaults to workspace OAUTH_CLIENT_ID", type: "text", required: false }
-];
-var ALL_KEYS = ["baseUrl", "consumerKey", "consumerSecret", "accessToken", "accessTokenSecret", "imsApiKey"];
-var EMPTY = ALL_KEYS.reduce((a, k) => {
-  a[k] = "";
-  return a;
-}, {});
-function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
-  const [type, setType] = useState6(() => initial && initial.type === "accs" ? "accs" : "oauth1a");
-  const [values, setValues] = useState6(() => ({
-    ...EMPTY,
+var FIELD_DEFS = {
+  paas: [
+    { key: "baseUrl", label: "Commerce base URL", placeholder: "https://store.example.com/", type: "text" },
+    { key: "consumerKey", label: "Consumer key", placeholder: "", type: "text" },
+    { key: "consumerSecret", label: "Consumer secret", placeholder: "", type: "password" },
+    { key: "accessToken", label: "Access token", placeholder: "", type: "text" },
+    { key: "accessTokenSecret", label: "Access token secret", placeholder: "", type: "password" }
+  ],
+  saas: [
+    {
+      key: "baseUrl",
+      label: "Commerce REST base URL (api host + tenant id)",
+      placeholder: "https://na1-sandbox.api.commerce.adobe.com/<tenant-id>/",
+      type: "text"
+    },
+    {
+      key: "apiKey",
+      label: "IMS API key (optional)",
+      placeholder: "Defaults to workspace OAUTH_CLIENT_ID",
+      type: "text",
+      optional: true
+    }
+  ]
+};
+function emptyValues(type) {
+  return FIELD_DEFS[type].reduce((a, f) => {
+    a[f.key] = "";
+    return a;
+  }, {});
+}
+function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel, decryptFailed }) {
+  const [connectionType, setConnectionType] = useState7(
+    initial && initial.connectionType === "saas" ? "saas" : "paas"
+  );
+  const [values, setValues] = useState7(() => ({
+    ...emptyValues(connectionType),
     ...initial && initial.baseUrl ? { baseUrl: initial.baseUrl } : {}
   }));
-  const [testState, setTestState] = useState6({ status: "idle", message: "" });
-  const [saveState, setSaveState] = useState6({ status: "idle", message: "" });
+  const [testState, setTestState] = useState7({ status: "idle", message: "" });
+  const [saveState, setSaveState] = useState7({ status: "idle", message: "" });
+  const fields = FIELD_DEFS[connectionType];
+  const requiredKeys = useMemo4(
+    () => fields.filter((f) => !f.optional).map((f) => f.key),
+    [fields]
+  );
+  const allFilled = requiredKeys.every((k) => String(values[k] || "").trim() !== "");
+  const onTypeChange = (next) => {
+    setConnectionType(next);
+    setValues((prev) => ({ ...emptyValues(next), baseUrl: prev.baseUrl || "" }));
+    setTestState({ status: "idle", message: "" });
+    setSaveState({ status: "idle", message: "" });
+  };
   const set = (k) => (v) => setValues((prev) => ({ ...prev, [k]: v }));
-  const activeFields = type === "accs" ? ACCS_FIELDS : OAUTH1A_FIELDS;
-  const allFilled = activeFields.filter((f) => f.required).every((f) => String(values[f.key] || "").trim() !== "");
-  function buildPayload() {
-    if (type === "accs") {
-      return { type: "accs", baseUrl: values.baseUrl, imsApiKey: values.imsApiKey };
-    }
-    return {
-      type: "oauth1a",
-      baseUrl: values.baseUrl,
-      consumerKey: values.consumerKey,
-      consumerSecret: values.consumerSecret,
-      accessToken: values.accessToken,
-      accessTokenSecret: values.accessTokenSecret
-    };
-  }
   async function handleTest() {
     setTestState({ status: "running", message: "Testing connection\u2026" });
     try {
@@ -2746,7 +4108,7 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
         { runtime, ims },
         getActionKey("commerceConnectionTest"),
         "",
-        buildPayload()
+        { connectionType, ...values }
       );
       const body = res && res.body ? res.body : res;
       if (body && body.ok) {
@@ -2765,7 +4127,7 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
         { runtime, ims },
         getActionKey("commerceConnectionSave"),
         "",
-        buildPayload()
+        { connectionType, ...values }
       );
       const body = res && res.body ? res.body : res;
       if (body && body.ok && body.saved) {
@@ -2781,62 +4143,88 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
   const testLight = testState.status === "ok" ? "positive" : testState.status === "fail" ? "negative" : testState.status === "running" ? "notice" : "neutral";
   return /* @__PURE__ */ jsxs5(View3, { padding: "size-400", maxWidth: "size-6000", margin: "0 auto", children: [
     /* @__PURE__ */ jsx5(Heading3, { level: 2, children: "Connect to Adobe Commerce" }),
-    /* @__PURE__ */ jsx5(Text3, { children: "Enter the REST/OAuth credentials for your Commerce instance. They are encrypted before being saved to App Builder Database. The rest of the app stays disabled until the connection is verified." }),
+    decryptFailed ? /* @__PURE__ */ jsx5(Well3, { marginBottom: "size-200", UNSAFE_style: { borderColor: "#b58105" }, children: /* @__PURE__ */ jsxs5(Text3, { UNSAFE_style: { color: "#92400e" }, children: [
+      /* @__PURE__ */ jsx5("strong", { children: "Existing credentials couldn't be decrypted." }),
+      " ",
+      "They were encrypted with a different ",
+      /* @__PURE__ */ jsx5("code", { children: "SYSTEM_CONFIG_CRYPT_KEY" }),
+      " ",
+      "than is configured now. Re-enter them below \u2014 the old record will be replaced on save."
+    ] }) }) : /* @__PURE__ */ jsx5(Text3, { children: "Enter the REST/OAuth credentials for your Commerce instance. They are encrypted before being saved to App Builder Database. The rest of the app stays disabled until the connection is verified." }),
     /* @__PURE__ */ jsx5(Divider3, { size: "S", marginY: "size-300" }),
-    /* @__PURE__ */ jsxs5(
-      RadioGroup,
-      {
-        label: "Integration type",
-        value: type,
-        onChange: (v) => {
-          setType(v);
-          setTestState({ status: "idle", message: "" });
+    /* @__PURE__ */ jsxs5(Form, { labelPosition: "top", necessityIndicator: "icon", children: [
+      /* @__PURE__ */ jsxs5(
+        RadioGroup,
+        {
+          label: "Integration type",
+          value: connectionType,
+          onChange: onTypeChange,
+          orientation: "vertical",
+          children: [
+            /* @__PURE__ */ jsx5(Radio, { value: "paas", children: "OAuth 1.0a (PaaS / on-prem)" }),
+            /* @__PURE__ */ jsx5(Radio, { value: "saas", children: "IMS OAuth (Adobe Commerce as a Cloud Service)" })
+          ]
+        }
+      ),
+      connectionType === "saas" && /* @__PURE__ */ jsx5(
+        View3,
+        {
+          marginTop: "size-100",
+          paddingX: "size-200",
+          paddingY: "size-150",
+          UNSAFE_style: {
+            background: "#f3f4f6",
+            border: "1px solid #e5e7eb",
+            borderRadius: 8
+          },
+          children: /* @__PURE__ */ jsxs5(Text3, { UNSAFE_style: { fontSize: 13, color: "#374151" }, children: [
+            "ACCS uses the workspace IMS Server-to-Server credential (with the",
+            " ",
+            /* @__PURE__ */ jsx5("code", { children: "commerce.accs" }),
+            " scope). Use the ",
+            /* @__PURE__ */ jsx5("strong", { children: "api" }),
+            " host",
+            " ",
+            "(e.g. ",
+            /* @__PURE__ */ jsx5("code", { children: "na1-sandbox.api.commerce.adobe.com" }),
+            "), ",
+            /* @__PURE__ */ jsx5("strong", { children: "not" }),
+            " the",
+            " ",
+            /* @__PURE__ */ jsx5("code", { children: "admin.*" }),
+            " URL, and include the tenant id segment as a",
+            " ",
+            "path prefix. The ",
+            /* @__PURE__ */ jsx5("code", { children: "OAUTH_CLIENT_ID" }),
+            "/",
+            /* @__PURE__ */ jsx5("code", { children: "SECRET" }),
+            "/",
+            /* @__PURE__ */ jsx5("code", { children: "ORG_ID" }),
+            " ",
+            "in ",
+            /* @__PURE__ */ jsx5("code", { children: ".env" }),
+            " mint the bearer token."
+          ] })
+        }
+      ),
+      fields.map((f) => /* @__PURE__ */ jsx5(
+        TextField3,
+        {
+          label: f.label,
+          placeholder: f.placeholder,
+          type: f.type === "password" ? "password" : "text",
+          value: values[f.key] || "",
+          onChange: set(f.key),
+          autoComplete: "off",
+          isRequired: !f.optional,
+          width: "100%"
         },
-        orientation: "horizontal",
-        children: [
-          /* @__PURE__ */ jsx5(Radio, { value: "oauth1a", children: "OAuth 1.0a (PaaS / on-prem)" }),
-          /* @__PURE__ */ jsx5(Radio, { value: "accs", children: "IMS OAuth (Adobe Commerce as a Cloud Service)" })
-        ]
-      }
-    ),
-    type === "accs" && /* @__PURE__ */ jsx5(View3, { marginTop: "size-100", marginBottom: "size-100", children: /* @__PURE__ */ jsxs5(Text3, { children: [
-      "ACCS uses the workspace IMS Server-to-Server credential (with the",
-      /* @__PURE__ */ jsx5("code", { children: " commerce.accs " }),
-      "scope). Use the ",
-      /* @__PURE__ */ jsx5("strong", { children: "api" }),
-      " host (e.g. ",
-      /* @__PURE__ */ jsx5("code", { children: "na1-sandbox.api.commerce.adobe.com" }),
-      "), ",
-      /* @__PURE__ */ jsx5("strong", { children: "not" }),
-      "the ",
-      /* @__PURE__ */ jsx5("code", { children: "admin.*" }),
-      " URL, and include the tenant id segment as a path prefix. The ",
-      /* @__PURE__ */ jsx5("code", { children: "OAUTH_CLIENT_ID" }),
-      "/",
-      /* @__PURE__ */ jsx5("code", { children: "SECRET" }),
-      "/",
-      /* @__PURE__ */ jsx5("code", { children: "ORG_ID" }),
-      "in ",
-      /* @__PURE__ */ jsx5("code", { children: ".env" }),
-      " mint the bearer token."
-    ] }) }),
-    /* @__PURE__ */ jsx5(Form, { necessityIndicator: "icon", labelPosition: "top", children: activeFields.map((f) => /* @__PURE__ */ jsx5(
-      TextField3,
-      {
-        label: f.label,
-        placeholder: f.placeholder,
-        type: f.type === "password" ? "password" : "text",
-        value: values[f.key],
-        onChange: set(f.key),
-        autoComplete: "off",
-        isRequired: f.required,
-        width: "100%"
-      },
-      f.key
-    )) }),
+        f.key
+      ))
+    ] }),
     /* @__PURE__ */ jsxs5(View3, { marginTop: "size-300", children: [
       /* @__PURE__ */ jsxs5(Flex3, { alignItems: "center", gap: "size-200", wrap: true, children: [
-        /* @__PURE__ */ jsxs5(ButtonGroup, { children: [
+        /* @__PURE__ */ jsxs5(ButtonGroup2, { children: [
           /* @__PURE__ */ jsx5(Button3, { variant: "secondary", onPress: handleTest, isDisabled: !allFilled || testState.status === "running", children: testState.status === "running" ? "Testing\u2026" : "Test connection" }),
           /* @__PURE__ */ jsx5(
             Button3,
@@ -2851,11 +4239,11 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
         ] }),
         testState.status !== "idle" && /* @__PURE__ */ jsxs5(Flex3, { alignItems: "center", gap: "size-100", children: [
           testState.status === "running" && /* @__PURE__ */ jsx5(ProgressCircle3, { size: "S", isIndeterminate: true, "aria-label": "Testing" }),
-          /* @__PURE__ */ jsx5(StatusLight, { variant: testLight, children: testState.message })
+          /* @__PURE__ */ jsx5(StatusLight2, { variant: testLight, children: testState.message })
         ] })
       ] }),
-      saveState.status === "fail" && /* @__PURE__ */ jsx5(View3, { marginTop: "size-150", children: /* @__PURE__ */ jsx5(StatusLight, { variant: "negative", children: saveState.message }) }),
-      saveState.status === "ok" && /* @__PURE__ */ jsx5(View3, { marginTop: "size-150", children: /* @__PURE__ */ jsx5(StatusLight, { variant: "positive", children: saveState.message }) })
+      saveState.status === "fail" && /* @__PURE__ */ jsx5(View3, { marginTop: "size-150", children: /* @__PURE__ */ jsx5(StatusLight2, { variant: "negative", children: saveState.message }) }),
+      saveState.status === "ok" && /* @__PURE__ */ jsx5(View3, { marginTop: "size-150", children: /* @__PURE__ */ jsx5(StatusLight2, { variant: "positive", children: saveState.message }) })
     ] })
   ] });
 }
@@ -2864,11 +4252,12 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel }) {
 import { jsx as jsx6, jsxs as jsxs6 } from "react/jsx-runtime";
 var MainPage = (props) => {
   const location = useLocation2();
-  const [status, setStatus] = useState7("unknown");
-  const [maskedCreds, setMaskedCreds] = useState7(null);
-  const [error, setError] = useState7(null);
-  const [reconfiguring, setReconfiguring] = useState7(false);
-  const fetchStatus = useCallback4(async () => {
+  const [status, setStatus] = useState8("unknown");
+  const [maskedCreds, setMaskedCreds] = useState8(null);
+  const [error, setError] = useState8(null);
+  const [reconfiguring, setReconfiguring] = useState8(false);
+  const [decryptFailed, setDecryptFailed] = useState8(false);
+  const fetchStatus = useCallback5(async () => {
     try {
       const res = await callAction(
         props,
@@ -2878,6 +4267,7 @@ var MainPage = (props) => {
       );
       const body = res && res.body ? res.body : res;
       setMaskedCreds(body && body.creds ? body.creds : null);
+      setDecryptFailed(!!(body && body.decryptFailed));
       setStatus(body && body.configured ? "configured" : "unconfigured");
       setError(null);
     } catch (e) {
@@ -2885,7 +4275,7 @@ var MainPage = (props) => {
       setStatus("error");
     }
   }, [props]);
-  useEffect6(() => {
+  useEffect7(() => {
     fetchStatus();
     if (props.ims.token) return;
     let cancelled = false;
@@ -2931,16 +4321,18 @@ var MainPage = (props) => {
         runtime: props.runtime,
         ims: props.ims,
         initial: maskedCreds,
+        decryptFailed,
         onCompleted: () => {
           setReconfiguring(false);
+          setDecryptFailed(false);
           fetchStatus();
         },
         onCancel: reconfiguring ? () => setReconfiguring(false) : void 0
       }
     );
   }
-  const items = getNavItems();
-  const match = items.find((it) => it.path === location.pathname) || items[0];
+  const leaves = flattenNavItems();
+  const match = leaves.find((it) => it.path === location.pathname) || leaves[0];
   const Page = match ? getPageComponent(match.id) : null;
   const pageFallback = ({ error: error2 }) => /* @__PURE__ */ jsxs6(View4, { padding: "size-400", children: [
     /* @__PURE__ */ jsx6(Heading4, { level: 3, children: "This page crashed" }),
@@ -2949,22 +4341,24 @@ var MainPage = (props) => {
       error2 && error2.message ? error2.message : String(error2)
     ] })
   ] });
+  const renderRightSlot = () => {
+    const RoleBadge = getRoleBadgeComponent();
+    return /* @__PURE__ */ jsxs6(Flex4, { gap: "size-100", alignItems: "center", children: [
+      RoleBadge ? /* @__PURE__ */ jsx6(RoleBadge, { runtime: props.runtime, ims: props.ims }) : null,
+      /* @__PURE__ */ jsx6(Button4, { variant: "secondary", onPress: () => setReconfiguring(true), children: "Reconfigure Commerce" })
+    ] });
+  };
   return /* @__PURE__ */ jsxs6(View4, { UNSAFE_style: { overflowX: "clip" }, children: [
-    /* @__PURE__ */ jsx6(
-      AppSectionNav,
-      {
-        rightSlot: /* @__PURE__ */ jsx6(Button4, { variant: "secondary", onPress: () => setReconfiguring(true), children: "Reconfigure Commerce" })
-      }
-    ),
+    /* @__PURE__ */ jsx6(AppSectionNav, { rightSlot: renderRightSlot() }),
     /* @__PURE__ */ jsx6(View4, { children: Page ? /* @__PURE__ */ jsx6(ErrorBoundary, { FallbackComponent: pageFallback, children: /* @__PURE__ */ jsx6(Page, { runtime: props.runtime, ims: props.ims }) }) : /* @__PURE__ */ jsx6(View4, { padding: "size-400", children: /* @__PURE__ */ jsx6(Text4, { children: "No page registered for this route." }) }) })
   ] });
 };
 
 // web/src/components/ExtensionRegistration.js
-import { useEffect as useEffect7 } from "react";
+import { useEffect as useEffect8 } from "react";
 import { jsx as jsx7 } from "react/jsx-runtime";
 function ExtensionRegistration(props) {
-  useEffect7(() => {
+  useEffect8(() => {
     (async () => {
       await register({
         id: getExtensionId(),
@@ -2982,9 +4376,9 @@ function App(props) {
     console.log("configuration change", { imsOrg, imsToken });
   });
   return /* @__PURE__ */ jsx8(ErrorBoundary2, { onError, FallbackComponent: fallbackComponent, children: /* @__PURE__ */ jsx8(HashRouter, { children: /* @__PURE__ */ jsx8(
-    Provider,
+    Provider2,
     {
-      theme: lightTheme,
+      theme: lightTheme2,
       colorScheme: "light",
       UNSAFE_className: "sm-provider",
       children: /* @__PURE__ */ jsx8(Routes, { children: /* @__PURE__ */ jsx8(
@@ -2999,7 +4393,7 @@ function App(props) {
   function onError(e, componentStack) {
   }
   function fallbackComponent({ componentStack, error }) {
-    return /* @__PURE__ */ jsxs7(React4.Fragment, { children: [
+    return /* @__PURE__ */ jsxs7(React5.Fragment, { children: [
       /* @__PURE__ */ jsx8("h1", { style: { textAlign: "center", marginTop: "20px" }, children: "Something went wrong :(" }),
       /* @__PURE__ */ jsx8("pre", { children: componentStack + "\n" + error.message })
     ] });
@@ -3039,7 +4433,13 @@ export {
   getPageComponent,
   isFieldSensitive,
   isFieldVisibleAtScope,
+  nextSortOrder,
+  renumberSortOrder,
+  resolveActor,
+  sortByOrder,
   useConfirm,
   useSystemConfig,
-  useSystemConfigSchema
+  useSystemConfigSchema,
+  validateFieldValue,
+  validateSchema
 };

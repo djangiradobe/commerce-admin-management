@@ -6,9 +6,9 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { callAction } from '../utils'
+import { callAction, resolveActor } from '../utils'
 import { getActionKey } from '../settings'
-import { flattenFields, isFieldVisibleAtScope } from '../schema/systemConfigSchema'
+import { flattenFields, isFieldVisibleAtScope, validateFieldValue } from '../schema/systemConfigSchema'
 import { buildStoreMappingsFromCommercePayload } from '../utils/storeMappingsFromCommerceRest'
 
 const SENSITIVE_PLACEHOLDER = '__SENSITIVE_UNCHANGED__'
@@ -71,7 +71,10 @@ export function useSystemConfig (props, schema) {
             values: { [STORE_MAPPINGS_PATH]: JSON.stringify(storeMappings, null, 2) },
             sensitivePaths: [],
             scope: 'default',
-            scopeId: '0'
+            scopeId: '0',
+            // Flag automatic store-mappings refreshes distinctly so the audit
+            // log doesn't blame the operator for system-driven syncs.
+            actor: 'system:store-mappings-sync'
           })
         } catch (err) {
           console.error('Failed to persist store_mappings to ABDB after loading Commerce stores', err)
@@ -167,10 +170,88 @@ export function useSystemConfig (props, schema) {
 
   const dirtyCount = useMemo(() => Object.keys(localValues).length, [localValues])
 
+  // Server-side validation errors returned by the last save attempt.
+  // Cleared whenever the user touches any field.
+  const [serverFieldErrors, setServerFieldErrors] = useState({})
+  useEffect(() => {
+    if (Object.keys(serverFieldErrors).length === 0) return
+    setServerFieldErrors({})
+    // intentionally only re-run when localValues change shape:
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Object.keys(localValues).join('|')])
+
+  // Live client-side validation. We only validate fields the user has
+  // actually edited (`localValues`) — pristine fields stay quiet to avoid
+  // shouting red on a freshly-loaded form.
+  const fieldErrors = useMemo(() => {
+    const errs = {}
+    const byPath = new Map(fields.map((f) => [f.path, f.field]))
+    for (const [path, value] of Object.entries(localValues)) {
+      const f = byPath.get(path)
+      if (!f) continue
+      // Sentinels aren't user values — don't validate them.
+      if (value === USE_DEFAULT_SENTINEL) continue
+      if (value === SENSITIVE_PLACEHOLDER) continue
+      const err = validateFieldValue(f, value)
+      if (err) errs[path] = err
+    }
+    return errs
+  }, [fields, localValues])
+
+  // Combined errors map (live + last-server). Server errors stay sticky
+  // until the user edits the offending field, which usually points at the
+  // actual problem.
+  const combinedErrors = useMemo(
+    () => ({ ...serverFieldErrors, ...fieldErrors }),
+    [serverFieldErrors, fieldErrors]
+  )
+  const hasErrors = Object.keys(combinedErrors).length > 0
+
+  /**
+   * Materialise the exact diff that will be sent to the server. Returns
+   * `[{ path, label, sectionLabel, groupLabel, oldValue, newValue, action, sensitive }]`.
+   * Used by the diff-preview modal to show the operator what's about to land.
+   */
+  const computeDiff = useCallback(() => {
+    const byPath = new Map(fields.map((f) => [f.path, f]))
+    const rows = []
+    const visibleFieldsByPath = new Map(
+      fields
+        .filter((f) => isFieldVisibleAtScope(f.field, scope.scope))
+        .map((f) => [f.path, f])
+    )
+    for (const [path, value] of Object.entries(localValues)) {
+      if (!visibleFieldsByPath.has(path)) continue
+      const meta = byPath.get(path)
+      const oldServer = serverItems[path]
+      let action
+      if (value === USE_DEFAULT_SENTINEL) action = 'inherit'
+      else if (value === SENSITIVE_PLACEHOLDER) continue // no-op
+      else if (oldServer && oldServer.value !== undefined) action = 'update'
+      else action = 'create'
+      rows.push({
+        path,
+        label: meta?.field?.label || meta?.field?.id || path,
+        sectionLabel: meta?.section?.label || meta?.section?.id,
+        groupLabel: meta?.group?.label || meta?.group?.id,
+        oldValue: meta?.sensitive ? '[encrypted]' : (oldServer?.value ?? null),
+        newValue: meta?.sensitive ? '[encrypted]' : value,
+        action,
+        sensitive: !!meta?.sensitive
+      })
+    }
+    return rows
+  }, [fields, localValues, serverItems, scope])
+
   const save = useCallback(async () => {
     if (dirtyCount === 0) return true
+    if (hasErrors) {
+      setError('Fix validation errors before saving')
+      return false
+    }
     setSaving(true)
     setError(null)
+    setServerFieldErrors({})
     try {
       const visibleFieldsByPath = new Map(
         fields
@@ -186,7 +267,7 @@ export function useSystemConfig (props, schema) {
         setSaving(false)
         return true
       }
-      await callAction(
+      const res = await callAction(
         props,
         getActionKey('systemConfigSave'),
         '',
@@ -194,20 +275,36 @@ export function useSystemConfig (props, schema) {
           values: payload,
           sensitivePaths,
           scope: scope.scope,
-          scopeId: scope.scopeId
+          scopeId: scope.scopeId,
+          // Per-user audit attribution — resolved from the IMS profile so
+          // audit rows show the operator instead of the org id.
+          actor: resolveActor(props.ims),
+          // Caller-side role hint for RBAC. Server still enforces.
+          role: props.userRole || undefined
         }
       )
+      // The action returns `{ statusCode, body }` shape via callAction.
+      const body = res?.body || res
+      if (body && body.fieldErrors) {
+        setServerFieldErrors(body.fieldErrors)
+        setError(body.error || 'Server rejected the save')
+        return false
+      }
       setSavedAt(Date.now())
       await fetchAtScope()
       return true
     } catch (e) {
+      // callAction throws non-2xx as Error with .response set.
+      const resp = e && e.response
+      if (resp && resp.fieldErrors) setServerFieldErrors(resp.fieldErrors)
+      else if (resp && resp.body && resp.body.fieldErrors) setServerFieldErrors(resp.body.fieldErrors)
       console.error('Failed to save system config', e)
       setError(e.message || 'Failed to save system config')
       return false
     } finally {
       setSaving(false)
     }
-  }, [props, dirtyCount, localValues, sensitivePaths, scope, fields, fetchAtScope])
+  }, [props, dirtyCount, hasErrors, localValues, sensitivePaths, scope, fields, fetchAtScope])
 
   const reset = useCallback(() => {
     setLocalValues({})
@@ -232,6 +329,9 @@ export function useSystemConfig (props, schema) {
     save,
     reset,
     refresh: fetchAtScope,
+    fieldErrors: combinedErrors,
+    hasErrors,
+    computeDiff,
     SENSITIVE_PLACEHOLDER,
     USE_DEFAULT_SENTINEL
   }

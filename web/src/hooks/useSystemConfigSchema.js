@@ -58,7 +58,14 @@ export function useSystemConfigSchema (props) {
           props,
           getActionKey('systemConfigSchema'),
           'save',
-          { schema: nextSchema, ...(confirmCascade ? { confirmCascade: true } : {}) }
+          {
+            schema: nextSchema,
+            // Caller role for the server-side admin gate. Server is
+            // authoritative — this is just a hint so the rejection is
+            // explicit rather than a generic 500.
+            role: props.userRole || undefined,
+            ...(confirmCascade ? { confirmCascade: true } : {})
+          }
         )
       } catch (err) {
         // 409 = cascade confirmation required. callAction throws on non-2xx

@@ -5,6 +5,9 @@ operations:
 # Action sources live alongside this manifest (same directory).
 actions: .
 # Host App Builder apps override `web` to point at their UI shell (see README).
+# Path is relative to this file. Scoped layout means we have to climb out
+# of: configurations/ → actions/ → commerce-admin-management/ → @adobedjangir/ →
+# node_modules/ → project root → web-src/. That's five `..` segments.
 web: ../../../../../web-src
 runtimeManifest:
   database:
@@ -36,16 +39,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         system-config-list:
           function: system-config-list/index.js
@@ -55,16 +55,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         system-config-save:
           function: system-config-save/index.js
@@ -74,16 +71,16 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            IO_EVENTS_PROVIDER_ID: $IO_EVENTS_PROVIDER_ID
+            IO_EVENTS_EVENT_CODE: $IO_EVENTS_EVENT_CODE
+            IO_EVENTS_API_KEY: $IO_EVENTS_API_KEY
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         system-config-schema:
           function: system-config-schema/index.js
@@ -92,16 +89,13 @@ runtimeManifest:
           inputs:
             LOG_LEVEL: debug
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         export-config:
           function: export-config/index.js
@@ -111,16 +105,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         import-config:
           function: import-config/index.js
@@ -133,16 +124,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         sync-store-mappings-from-commerce:
           function: sync-store-mappings-from-commerce/index.js
@@ -152,16 +140,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         commerce-connection-status:
           function: commerce-connection-status/index.js
@@ -171,16 +156,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         commerce-connection-test:
           function: commerce-connection-test/index.js
@@ -190,16 +172,13 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
             final: true
         commerce-connection-save:
           function: commerce-connection-save/index.js
@@ -209,14 +188,27 @@ runtimeManifest:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
-            IMS_OAUTH_S2S_CLIENT_ID: $IMS_OAUTH_S2S_CLIENT_ID
             OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
-            IMS_OAUTH_S2S_CLIENT_SECRET: $IMS_OAUTH_S2S_CLIENT_SECRET
             OAUTH_ORG_ID: $OAUTH_ORG_ID
-            IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             OAUTH_SCOPES: $OAUTH_SCOPES
-            IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
           annotations:
             require-adobe-auth: false
+            include-ims-credentials: true
+            final: true
+        system-config-bulk-save:
+          function: system-config-bulk-save/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          inputs:
+            LOG_LEVEL: debug
+            SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
+            OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
+            OAUTH_CLIENT_SECRET: $OAUTH_CLIENT_SECRET
+            OAUTH_ORG_ID: $OAUTH_ORG_ID
+            OAUTH_SCOPES: $OAUTH_SCOPES
+            AIO_DB_REGION: $AIO_DB_REGION
+          annotations:
+            require-adobe-auth: false
+            include-ims-credentials: true
             final: true

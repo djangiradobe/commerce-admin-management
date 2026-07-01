@@ -1,6 +1,6 @@
 /*
 Copyright 2025 Adobe. All rights reserved.
-This file is licensed to you under the Apache License, Version 2.0 (the "License");
+Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License. You may obtain a copy
 of the License at http://www.apache.org/licenses/LICENSE-2.0
 */
@@ -17,24 +17,40 @@ const {
   normalizeScopeId
 } = require('@adobedjangir/commerce-admin-management/shared')
 const { encrypt } = require('@adobedjangir/commerce-admin-management/crypto')
+const { validateFieldValue, indexSchemaByPath } = require('../../schema-validation')
+const { publishConfigEvent } = require('../../io-events')
 
 const COLLECTION = 'system_config_data'
+const SCHEMA_COLLECTION = 'system_config_schema'
+const SCHEMA_DOC_ID = 'v1'
 
-async function ensureCollection (client) {
+// Soft-dependency hooks. When the add-on packages are installed, these
+// resolve to the real implementation; when they're not, every call
+// silently no-ops. Each add-on's hook is a small, well-defined surface:
+//   audit-log/hook  → recordAuditEntries(client, entries, logger)
+//   ims-access/hook → checkFieldRole(callerRole, field) → null | error msg
+//
+// IMPORTANT: these MUST be literal require() strings, not require(variable).
+// The action is bundled by esbuild at deploy time; esbuild can only follow —
+// and therefore bundle — a require() whose argument is a string literal. A
+// require(variable) is left as a runtime require, which then fails inside the
+// OpenWhisk sandbox (no node_modules there), silently disabling the hook.
+// A literal require() inside try/catch is bundled when the add-on is present
+// and degrades gracefully (build warning, runtime null) when it is not.
+let auditHook = null
+try { auditHook = require('@adobedjangir/commerce-admin-audit-log/hook') } catch (_) { auditHook = null }
+let rbacHook = null
+try { rbacHook = require('@adobedjangir/commerce-admin-ims-access/hook') } catch (_) { rbacHook = null }
+
+async function ensureCollection (client, name) {
   try {
-    await client.createCollection(COLLECTION)
+    await client.createCollection(name)
   } catch (err) {
     const msg = (err && err.message) ? String(err.message) : String(err)
     if (!/exist|already|duplicate/i.test(msg)) throw err
   }
 }
 
-/**
- * ABDB's `findOne` throws "Document not found" on a miss in this driver
- * version. `find().limit(1).toArray()` always returns an array, so use that
- * to mean "fetch one or null". Belt-and-braces try/catch in case `find`
- * itself starts throwing in a future version.
- */
 async function tryFindOne (collection, query) {
   try {
     const arr = await collection.find(query).limit(1).toArray()
@@ -46,17 +62,42 @@ async function tryFindOne (collection, query) {
   }
 }
 
+async function loadSchema (client) {
+  try {
+    const col = await client.collection(SCHEMA_COLLECTION)
+    const doc = await tryFindOne(col, { _id: SCHEMA_DOC_ID })
+    return doc && doc.schema ? doc.schema : null
+  } catch (_) {
+    return null
+  }
+}
+
 /**
- * Upsert/delete values in the ABDB `system_config_data` collection.
- *
- * Per-value behavior (unchanged):
- *   - value === SENSITIVE_PLACEHOLDER → no-op (UI sent back a masked value)
- *   - value === USE_DEFAULT_SENTINEL  → delete the scope override (inherit)
- *   - sensitive=true                  → encrypt with AES-256-GCM before writing
- *
- * Document shape (mirrors core_config_data):
- *   { _id, scope, scope_id, path, value, createdAt, updatedAt }
+ * Identify the actor making the change. Prefers an explicit `actor` value
+ * from the caller (lets the UI pass an IMS email), otherwise falls back to
+ * the x-gw-ims-org-id header so multi-tenant ops at least see the org. If
+ * neither is set we record `system`.
  */
+function resolveActor (params) {
+  if (params.actor && typeof params.actor === 'string') return params.actor
+  const headers = params.__ow_headers || {}
+  return headers['x-gw-ims-org-id'] || headers['x-ims-org-id'] || 'system'
+}
+
+function summarizeForAudit (path, value, sensitive) {
+  if (value == null) return null
+  if (sensitive) return '[ENCRYPTED]'
+  if (typeof value === 'string') {
+    // Cap to keep audit docs small.
+    return value.length > 500 ? value.slice(0, 500) + '…' : value
+  }
+  return value
+}
+
+// Audit storage moved to @adobedjangir/commerce-admin-audit-log/hook — when
+// installed, recordAuditEntries() handles the write. When not, audit
+// entries are computed but discarded (write is a soft-no-op).
+
 async function main (params) {
   const logger = Core.Logger('system-config-save', { level: params.LOG_LEVEL || 'info' })
 
@@ -77,6 +118,7 @@ async function main (params) {
   }
 
   const sensitiveSet = new Set(sensitivePaths)
+  const actor = resolveActor(params)
 
   let dbHandle
   try {
@@ -88,12 +130,49 @@ async function main (params) {
   const { client, close } = dbHandle
 
   try {
-    await ensureCollection(client)
+    await ensureCollection(client, COLLECTION)
     const collection = await client.collection(COLLECTION)
+
+    // ── Schema validation gate ──
+    // Bad values are rejected wholesale: either the whole payload is valid
+    // or none of it is written. This prevents partial writes that the UI
+    // can't easily recover from.
+    const schema = await loadSchema(client)
+    if (schema) {
+      const fieldByPath = indexSchemaByPath(schema)
+      const fieldErrors = {}
+      // Caller-supplied role (resolved by the UI via ims-user-profile).
+      // RBAC enforcement is delegated to the ims-access add-on's hook —
+      // when the add-on isn't installed, requiredRole tags become advisory
+      // (UI still hides + disables, but the server can't independently
+      // verify, so it doesn't block).
+      const callerRole = typeof params.role === 'string' ? params.role : null
+      for (const [path, value] of Object.entries(values)) {
+        // Skip sentinels — they're not user data.
+        if (value === USE_DEFAULT_SENTINEL) continue
+        if (sensitiveSet.has(path) && value === SENSITIVE_PLACEHOLDER) continue
+        const field = fieldByPath.get(path)
+        if (!field) continue // path not in schema — silently allowed (legacy/extension paths)
+        const err = validateFieldValue(field, value)
+        if (err) fieldErrors[path] = err
+        if (rbacHook && rbacHook.checkFieldRole) {
+          const roleErr = rbacHook.checkFieldRole(callerRole, field)
+          if (roleErr) fieldErrors[path] = roleErr
+        }
+      }
+      if (Object.keys(fieldErrors).length) {
+        return {
+          statusCode: 400,
+          body: { error: 'Validation failed', fieldErrors }
+        }
+      }
+    }
+
     const now = new Date().toISOString()
     const saved = []
     const deleted = []
     const skipped = []
+    const auditEntries = []
 
     for (const [path, value] of Object.entries(values)) {
       if (!isValidPath(path)) {
@@ -101,28 +180,53 @@ async function main (params) {
         continue
       }
       const id = toStateKey(scope, scopeId, path)
+      const existing = await tryFindOne(collection, { _id: id })
+      const sensitive = sensitiveSet.has(path)
 
       if (value === USE_DEFAULT_SENTINEL) {
         await collection.deleteOne({ _id: id })
         deleted.push(path)
+        if (existing) {
+          auditEntries.push({
+            scope,
+            scope_id: scopeId,
+            path,
+            action: 'delete',
+            oldValue: summarizeForAudit(path, existing.value, sensitive),
+            newValue: null,
+            changedBy: actor,
+            changedAt: now
+          })
+        }
         continue
       }
-      if (sensitiveSet.has(path) && value === SENSITIVE_PLACEHOLDER) {
+      if (sensitive && value === SENSITIVE_PLACEHOLDER) {
         skipped.push({ path, reason: 'masked placeholder, kept existing' })
         continue
       }
 
       let stored = value
-      if (sensitiveSet.has(path) && stored !== '' && stored != null) {
+      if (sensitive && stored !== '' && stored != null) {
         stored = encrypt(String(stored), params)
       }
 
-      const existing = await tryFindOne(collection, { _id: id })
       if (existing) {
-        await collection.updateOne(
-          { _id: id },
-          { $set: { value: stored, updatedAt: now } }
-        )
+        if (existing.value !== stored) {
+          await collection.updateOne(
+            { _id: id },
+            { $set: { value: stored, updatedAt: now } }
+          )
+          auditEntries.push({
+            scope,
+            scope_id: scopeId,
+            path,
+            action: 'update',
+            oldValue: summarizeForAudit(path, existing.value, sensitive),
+            newValue: summarizeForAudit(path, value, sensitive),
+            changedBy: actor,
+            changedAt: now
+          })
+        }
       } else {
         await collection.insertOne({
           _id: id,
@@ -133,8 +237,49 @@ async function main (params) {
           createdAt: now,
           updatedAt: now
         })
+        auditEntries.push({
+          scope,
+          scope_id: scopeId,
+          path,
+          action: 'create',
+          oldValue: null,
+          newValue: summarizeForAudit(path, value, sensitive),
+          changedBy: actor,
+          changedAt: now
+        })
       }
       saved.push(path)
+    }
+
+    // Audit write — delegated to the audit-log add-on if installed.
+    // Failure to log must never fail the save (the add-on's hook is also
+    // best-effort internally, this is belt-and-braces).
+    if (auditHook && auditHook.recordAuditEntries) {
+      try {
+        await auditHook.recordAuditEntries(client, auditEntries, logger)
+      } catch (e) {
+        logger.warn(`audit hook write failed: ${e.message}`)
+      }
+    }
+
+    // Best-effort I/O Events publish — skipped when not configured.
+    if (auditEntries.length) {
+      try {
+        await publishConfigEvent(params, {
+          scope,
+          scopeId,
+          actor,
+          changes: auditEntries.map((e) => ({
+            path: e.path,
+            action: e.action,
+            // Don't put values in events to avoid leaking sensitive data.
+            sensitive: sensitiveSet.has(e.path)
+          })),
+          totalChanges: auditEntries.length
+        }, logger)
+      } catch (e) {
+        logger.warn(`I/O Events publish failed: ${e.message}`)
+      }
     }
 
     const redactedForLog = Object.fromEntries(
@@ -142,12 +287,12 @@ async function main (params) {
     )
     logDetails(
       'system-config-save',
-      `scope=${scope}:${scopeId} payload=${JSON.stringify(redactedForLog)}`
+      `scope=${scope}:${scopeId} actor=${actor} payload=${JSON.stringify(redactedForLog)}`
     )
 
     return {
       statusCode: 200,
-      body: { message: 'System config saved', scope, scopeId, saved, deleted, skipped }
+      body: { message: 'System config saved', scope, scopeId, saved, deleted, skipped, auditCount: auditEntries.length }
     }
   } catch (error) {
     logger.error(error)

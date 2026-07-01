@@ -221,12 +221,20 @@ import { CommerceAdminManagementApp as App, configureWeb } from '@adobedjangir/c
 import actions from './config.json'
 import navConfig from './nav.json'
 import extraPages from './pages'
+import registerAddons from './addons'
 
 configureWeb({
   actionUrls: actions,
   extraNav: Array.isArray(navConfig && navConfig.items) ? navConfig.items : [],
   extraPages
 })
+
+// Register optional add-on packages (Audit Log, Snapshots, IMS Access…).
+// addons.js is host-owned — core creates it once and never overwrites it;
+// each add-on's postinstall appends its registration there. This file
+// (index.js) is regenerated on every core install, so add-on wiring must
+// NOT live here.
+registerAddons()
 
 window.React = React
 
@@ -356,6 +364,34 @@ export default function Welcome ({ runtime, ims }) {
 `
 }
 
+function addonsContents () {
+  return `/*
+Copyright 2025 Adobe. All rights reserved.
+Licensed under the Apache License, Version 2.0
+*/
+
+// Add-on registry — HOST-OWNED, created once by
+// @adobedjangir/commerce-admin-management and NEVER overwritten afterward.
+//
+// Each optional add-on package (audit-log, snapshots, ims-access) appends
+// its registration inside the auto-managed block below when you
+// \`npm install\` it. The bootstrap (index.js) imports registerAddons and
+// calls it after configureWeb — index.js is regenerated on every core
+// install, which is exactly why add-on wiring lives HERE instead.
+//
+// You can hand-edit this file (reorder, remove, add your own register
+// calls); the add-on installers only touch the marked region.
+
+// --- COMMERCE-ADMIN ADDON IMPORTS (auto-managed) ---
+// --- COMMERCE-ADMIN ADDON IMPORTS END ---
+
+export default function registerAddons () {
+  // --- COMMERCE-ADMIN ADDON CALLS (auto-managed) ---
+  // --- COMMERCE-ADMIN ADDON CALLS END ---
+}
+`
+}
+
 function ensureDir (dir) {
   fs.mkdirSync(dir, { recursive: true })
 }
@@ -448,6 +484,9 @@ function setupWebSrc (projectRoot) {
     excRuntime: writeIfMissing(path.join(webSrcDir, 'exc-runtime.js'),     excRuntimeContents()),
     bootstrap:  writeBootstrap(path.join(webSrcDir, 'index.js'),           bootstrapContents()),
     nav:        writeIfMissing(path.join(webSrcDir, 'nav.json'),           navJsonContents()),
+    // addons.js is host-owned (created once, never overwritten) so add-on
+    // registrations survive core re-installs that rewrite index.js.
+    addons:     writeIfMissing(path.join(webSrcDir, 'addons.js'),          addonsContents()),
     pages:      writeIfMissing(path.join(webSrcDir, 'pages', 'index.js'),  pagesIndexContents()),
     // Default starter page — only created on first install, never overwritten,
     // and never auto-removed even if the dev deletes the registry entry.
@@ -783,26 +822,51 @@ function ensureEnvDefaults (projectRoot) {
   return { changed: true, set, file: envPath, existed }
 }
 
+// The pre-app-build hook that regenerates addons.js from installed add-ons
+// on every `aio app build`/`deploy`. This is the RELIABLE trigger — npm
+// postinstall doesn't re-run for already-installed versions, but the build
+// hook fires every time, so add-on registration is always current.
+const BUILD_HOOK_CMD = 'node node_modules/@adobedjangir/commerce-admin-management/scripts/discover.js'
+
+/**
+ * Ensure the commerce/backend-ui/1 extension has a `hooks.pre-app-build`
+ * that runs discovery. Inserts it as a sibling of the extension's
+ * `$include:` line. Idempotent.
+ */
+function patchBuildHook (content) {
+  if (content.includes('scripts/discover.js') && content.includes('pre-app-build')) {
+    return { content, changed: false }
+  }
+  // Find the extension's $include line and match its indentation.
+  const m = content.match(/^([ \t]*)\$include:[ \t]*node_modules\/@adobedjangir\/commerce-admin-management\/actions\/configurations\/ext\.config\.yaml[^\n]*\n/m)
+  if (!m) return { content, changed: false }
+  const indent = m[1]
+  const insertion =
+    `${indent}hooks:\n` +
+    `${indent}  pre-app-build: ${BUILD_HOOK_CMD}\n`
+  const next = content.replace(m[0], m[0] + insertion)
+  return { content: next, changed: next !== content }
+}
+
 function setupAppConfig (projectRoot) {
   const appConfigPath = path.join(projectRoot, 'app.config.yaml')
   if (!fs.existsSync(appConfigPath)) {
     return { changed: false, reason: 'no-app-config' }
   }
 
-  // We only auto-patch the $include line here. ABDB provisioning defaults
-  // ship inside the package's ext.config.yaml — host devs override by adding
-  // their own `application: database: ...` block to app.config.yaml or by
-  // changing AIO_DB_REGION in .env. patchAppConfigDatabase is still exported
-  // so callers can opt into materializing the default into app.config.yaml,
-  // but it's not run by default to keep the host's app.config.yaml clean.
+  // We auto-patch two things here:
+  //   1. the extension $include line (core's actions), and
+  //   2. a pre-app-build hook that runs addon discovery on every build.
+  // ABDB provisioning defaults ship inside the package's ext.config.yaml.
   const original = fs.readFileSync(appConfigPath, 'utf8')
-  const { content, changed, reason } = patchAppConfig(original)
-  if (!changed) {
-    return { changed: false, reason }
+  const inc = patchAppConfig(original)
+  const hook = patchBuildHook(inc.content)
+  if (!inc.changed && !hook.changed) {
+    return { changed: false, reason: inc.reason }
   }
-
-  fs.writeFileSync(appConfigPath, content, 'utf8')
-  return { changed: true, reason, detail: INCLUDE_REL }
+  fs.writeFileSync(appConfigPath, hook.content, 'utf8')
+  const reasons = [inc.changed ? inc.reason : null, hook.changed ? 'build-hook' : null].filter(Boolean)
+  return { changed: true, reason: reasons.join('+'), detail: INCLUDE_REL }
 }
 
 function main () {

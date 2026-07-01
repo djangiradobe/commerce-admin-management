@@ -8,10 +8,15 @@ import { attach } from '@adobe/uix-guest'
 import React, { useEffect, useState, useCallback } from 'react'
 import { ErrorBoundary } from 'react-error-boundary'
 import { useLocation } from 'react-router-dom'
-import { getExtensionId, getActionKey, getNavItems, getPageComponent } from '../settings'
+import { getExtensionId, getActionKey, getNavItems, getPageComponent, flattenNavItems } from '../settings'
 import { callAction } from '../utils'
 import AppSectionNav from './AppSectionNav'
 import CommerceSetupWizard from './CommerceSetupWizard'
+// RoleBadge lives in @adobedjangir/commerce-admin-ims-access. The add-on
+// registers it at install time via configureWeb({ roleBadge: ... }), and
+// we read it from the registry — keeps core build-clean when the add-on
+// isn't installed.
+import { getRoleBadgeComponent } from '../settings'
 
 export const MainPage = props => {
   const location = useLocation()
@@ -23,6 +28,7 @@ export const MainPage = props => {
   const [maskedCreds, setMaskedCreds] = useState(null)
   const [error, setError] = useState(null)
   const [reconfiguring, setReconfiguring] = useState(false)
+  const [decryptFailed, setDecryptFailed] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -34,6 +40,7 @@ export const MainPage = props => {
       )
       const body = res && res.body ? res.body : res
       setMaskedCreds(body && body.creds ? body.creds : null)
+      setDecryptFailed(!!(body && body.decryptFailed))
       setStatus(body && body.configured ? 'configured' : 'unconfigured')
       setError(null)
     } catch (e) {
@@ -98,8 +105,10 @@ export const MainPage = props => {
         runtime={props.runtime}
         ims={props.ims}
         initial={maskedCreds}
+        decryptFailed={decryptFailed}
         onCompleted={() => {
           setReconfiguring(false)
+          setDecryptFailed(false)
           fetchStatus()
         }}
         onCancel={reconfiguring ? () => setReconfiguring(false) : undefined}
@@ -110,8 +119,8 @@ export const MainPage = props => {
   // Pick the page component for the active path from the nav registry.
   // To add a new page: register it in pages/index.js (or host extraPages)
   // and add an entry to nav.json (or host extraNav).
-  const items = getNavItems()
-  const match = items.find((it) => it.path === location.pathname) || items[0]
+  const leaves = flattenNavItems()
+  const match = leaves.find((it) => it.path === location.pathname) || leaves[0]
   const Page = match ? getPageComponent(match.id) : null
 
   const pageFallback = ({ error }) => (
@@ -123,15 +132,23 @@ export const MainPage = props => {
     </View>
   )
 
+  // Render the top-nav right slot. RoleBadge is injected by the
+  // ims-access add-on through configureWeb; absent when add-on isn't installed.
+  const renderRightSlot = () => {
+    const RoleBadge = getRoleBadgeComponent()
+    return (
+      <Flex gap="size-100" alignItems="center">
+        {RoleBadge ? <RoleBadge runtime={props.runtime} ims={props.ims} /> : null}
+        <Button variant="secondary" onPress={() => setReconfiguring(true)}>
+          Reconfigure Commerce
+        </Button>
+      </Flex>
+    )
+  }
+
   return (
     <View UNSAFE_style={{ overflowX: 'clip' }}>
-      <AppSectionNav
-        rightSlot={
-          <Button variant="secondary" onPress={() => setReconfiguring(true)}>
-            Reconfigure Commerce
-          </Button>
-        }
-      />
+      <AppSectionNav rightSlot={renderRightSlot()} />
       <View>
         {Page
           ? (

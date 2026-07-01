@@ -12,6 +12,28 @@ governing permissions and limitations under the License.
 
 import { getActionUrl } from './settings'
 
+/**
+ * Resolve a human-readable identifier for the current user, used as the
+ * `actor` field on audit entries. Preference order:
+ *   1. profile.email           — most common, readable
+ *   2. profile.userId          — Adobe IMS user GUID
+ *   3. profile.displayName     — fallback when email is hidden
+ *   4. ims.org                 — last resort: per-org, not per-user
+ *
+ * Returns 'anonymous' when nothing is available (raw localhost dev).
+ */
+export function resolveActor (ims) {
+  if (!ims || typeof ims !== 'object') return 'anonymous'
+  const profile = ims.profile || {}
+  const candidate =
+    profile.email ||
+    profile.userId ||
+    profile.displayName ||
+    profile.first_name ||
+    ims.org
+  return candidate ? String(candidate) : 'anonymous'
+}
+
 export async function callAction (props, action, operation, body = {}) {
   const url = getActionUrl(action)
   if (!url) {

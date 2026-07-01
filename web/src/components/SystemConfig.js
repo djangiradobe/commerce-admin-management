@@ -5,7 +5,7 @@ you may not use this file except in compliance with the License. You may obtain 
 of the License at http://www.apache.org/licenses/LICENSE-2.0
 */
 
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   View,
@@ -13,6 +13,7 @@ import {
   Heading,
   Text,
   Button,
+  ButtonGroup,
   ActionButton,
   TooltipTrigger,
   Tooltip,
@@ -27,7 +28,13 @@ import {
   ProgressCircle,
   ProgressBar,
   Divider,
-  Well
+  Well,
+  SearchField,
+  DialogTrigger,
+  Dialog,
+  Header,
+  Content,
+  StatusLight
 } from '@adobe/react-spectrum'
 import Settings from '@spectrum-icons/workflow/Settings'
 import Globe from '@spectrum-icons/workflow/Globe'
@@ -41,7 +48,20 @@ import ChevronRight from '@spectrum-icons/workflow/ChevronRight'
 import { useSystemConfig } from '../hooks/useSystemConfig'
 import { useSystemConfigSchema } from '../hooks/useSystemConfigSchema'
 import { useConfirm } from '../hooks/useConfirm'
-import { isFieldVisibleAtScope, coerceDefault } from '../schema/systemConfigSchema'
+import { getUserRoleProvider } from '../settings'
+// RBAC lives in @adobedjangir/commerce-admin-ims-access (when installed).
+// The add-on calls configureWeb({ userRoleProvider }) at registration
+// time. We read it via the registry getter — no static import of the
+// add-on, no bundler resolution failure when it's absent.
+const useUserRole = (props) => getUserRoleProvider()(props)
+// hasRole is a tiny pure function — duplicate it locally to avoid pulling
+// in the add-on for its sake.
+const ROLE_RANK_LOCAL = { viewer: 0, editor: 1, admin: 2 }
+const hasRole = (userRole, required) => {
+  if (!required) return true
+  return (ROLE_RANK_LOCAL[userRole] ?? -1) >= (ROLE_RANK_LOCAL[required] ?? 99)
+}
+import { isFieldVisibleAtScope, coerceDefault, sortByOrder } from '../schema/systemConfigSchema'
 import SystemConfigSchemaEditor from './SystemConfigSchemaEditor'
 import { callAction } from '../utils'
 import { getActionKey } from '../settings'
@@ -255,13 +275,18 @@ function FieldRow ({
   displayValue,
   origin,
   inherited,
+  error,
   onFieldChange,
   onUseDefaultChange,
-  sensitivePlaceholder
+  sensitivePlaceholder,
+  onBulkApply,
+  userRole
 }) {
   const allowed = isFieldVisibleAtScope(field, scope.scope)
   const showUseDefault = scope.scope !== 'default' && allowed
-  const editorDisabled = !allowed || (showUseDefault && inherited)
+  // RBAC: disable the input when caller lacks the field's required role.
+  const rbacOk = hasRole(userRole || 'admin', field.requiredRole)
+  const editorDisabled = !allowed || (showUseDefault && inherited) || !rbacOk
   const isTextarea = field.type === 'textarea'
 
   const originLabel = origin
@@ -276,7 +301,8 @@ function FieldRow ({
         gap: 16,
         alignItems: isTextarea ? 'start' : 'center',
         padding: '14px 0',
-        borderBottom: `1px solid ${PALETTE.border}`
+        borderBottom: `1px solid ${PALETTE.border}`,
+        background: error ? 'rgba(192,57,43,0.04)' : 'transparent'
       }}
     >
       <div style={{ paddingTop: isTextarea ? 6 : 0 }}>
@@ -300,6 +326,7 @@ function FieldRow ({
         </div>
         <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {!allowed && <Pill tone="warning">Not configurable here</Pill>}
+          {!rbacOk && <Pill tone="warning">Requires {field.requiredRole}</Pill>}
           {allowed && scope.scope !== 'default' && (
             <Pill tone={inherited ? 'neutral' : 'accent'}>
               {inherited ? originLabel : 'overridden'}
@@ -316,9 +343,22 @@ function FieldRow ({
           sensitivePlaceholder={sensitivePlaceholder}
           onChange={(v) => onFieldChange(path, v)}
         />
+        {error && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 6,
+              fontSize: 12,
+              color: PALETTE.danger,
+              fontWeight: 600
+            }}
+          >
+            {error}
+          </div>
+        )}
       </div>
 
-      <div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
         {showUseDefault && (
           <Checkbox
             isSelected={inherited}
@@ -326,6 +366,16 @@ function FieldRow ({
           >
             Use Default
           </Checkbox>
+        )}
+        {onBulkApply && allowed && (
+          <Button
+            variant="secondary"
+            isQuiet
+            onPress={() => onBulkApply(path, displayValue, field)}
+            UNSAFE_style={{ fontSize: 11 }}
+          >
+            Apply to…
+          </Button>
         )}
       </div>
     </div>
@@ -346,41 +396,85 @@ function GroupCard ({
   isInheritedAtScope,
   setFieldValue,
   setUseDefault,
-  sensitivePlaceholder
+  sensitivePlaceholder,
+  fieldErrors = {},
+  searchFilter = '',
+  onTest,
+  onBulkApply,
+  userRole
 }) {
+  const lower = searchFilter.trim().toLowerCase()
+  const visibleFields = (group.fields || []).filter((field) => {
+    if (!lower) return true
+    return (
+      String(field.label || '').toLowerCase().includes(lower) ||
+      String(field.id || '').toLowerCase().includes(lower)
+    )
+  })
+  if (visibleFields.length === 0 && lower) return null
+
+  // A group exposes a Test button when any field declares `testActionKey`
+  // (the action key in DEFAULT_ACTION_KEYS to call). The button POSTs the
+  // group's current draft values as the action body.
+  const testField = (group.fields || []).find((f) => f && f.testActionKey)
+  const groupErrorCount = visibleFields.reduce((n, f) => {
+    const path = `${sectionId}/${group.id}/${f.id}`
+    return fieldErrors[path] ? n + 1 : n
+  }, 0)
+
   return (
-    <Card padded={false} style={{ marginBottom: 16 }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={!collapsed}
+    <Card padded={false} style={{ marginBottom: 16, borderColor: groupErrorCount ? PALETTE.danger : undefined }}>
+      <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          width: '100%',
           padding: '14px 20px',
-          background: 'transparent',
-          border: 0,
           borderBottom: collapsed ? 0 : `1px solid ${PALETTE.border}`,
-          cursor: 'pointer',
-          userSelect: 'none',
-          font: 'inherit',
-          color: 'inherit',
-          textAlign: 'left'
+          gap: 12
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={!collapsed}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flex: 1,
+            background: 'transparent',
+            border: 0,
+            cursor: 'pointer',
+            userSelect: 'none',
+            font: 'inherit',
+            color: 'inherit',
+            textAlign: 'left',
+            padding: 0
+          }}
+        >
           <span style={{ color: PALETTE.textMuted, display: 'inline-flex' }}>
             {collapsed ? <ChevronRight size="S" /> : <ChevronDown size="S" />}
           </span>
           <span style={{ fontWeight: 700, fontSize: 15, color: PALETTE.text }}>{group.label}</span>
-          <Pill tone="neutral">{(group.fields || []).length} fields</Pill>
-        </div>
-      </button>
+          <Pill tone="neutral">{visibleFields.length} field{visibleFields.length === 1 ? '' : 's'}</Pill>
+          {groupErrorCount > 0 && (
+            <Pill tone="danger">{groupErrorCount} error{groupErrorCount === 1 ? '' : 's'}</Pill>
+          )}
+        </button>
+        {testField && onTest && (
+          <Button
+            variant="secondary"
+            onPress={() => onTest(group, sectionId)}
+            isQuiet
+          >
+            Test {testField.label || 'connection'}
+          </Button>
+        )}
+      </div>
       {!collapsed && (
         <div style={{ padding: '4px 20px 16px' }}>
-          {(group.fields || []).map((field) => {
+          {visibleFields.map((field) => {
             const path = `${sectionId}/${group.id}/${field.id}`
             const inherited = isInheritedAtScope(path)
             const displayValue = getDisplayValue(path, coerceDefault(field))
@@ -393,9 +487,12 @@ function GroupCard ({
                 displayValue={displayValue}
                 origin={getOrigin(path)}
                 inherited={inherited}
+                error={fieldErrors[path]}
                 onFieldChange={setFieldValue}
                 onUseDefaultChange={setUseDefault}
                 sensitivePlaceholder={sensitivePlaceholder}
+                onBulkApply={onBulkApply}
+                userRole={userRole}
               />
             )
           })}
@@ -496,7 +593,7 @@ function Sidebar ({ sections, activeSectionId, onSelect }) {
 // ----------------------------------------------------------------------------
 // Values view
 // ----------------------------------------------------------------------------
-function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx }) {
+function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx, callerProps, userRole }) {
   const {
     scope,
     scopeTree,
@@ -513,10 +610,123 @@ function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx 
     save,
     reset,
     refresh,
+    fieldErrors,
+    hasErrors,
+    computeDiff,
     SENSITIVE_PLACEHOLDER
   } = configCtx
 
-  const sections = schema?.sections || []
+  const [searchFilter, setSearchFilter] = useState('')
+  const [diffOpen, setDiffOpen] = useState(false)
+  const [diffRows, setDiffRows] = useState([])
+  const [testStatus, setTestStatus] = useState({ tone: 'neutral', message: '' })
+
+  // Bulk-apply ("Apply to…") dialog state. `bulk.targets` is a Set of
+  // 'scope::scopeId' strings so toggling is O(1).
+  const [bulk, setBulk] = useState({ open: false, path: null, value: null, field: null, targets: new Set(), busy: false, result: null })
+  const openBulkApply = useCallback((path, value, field) => {
+    setBulk({ open: true, path, value, field, targets: new Set(), busy: false, result: null })
+  }, [])
+  const toggleBulkTarget = (key) => setBulk((prev) => {
+    const next = new Set(prev.targets)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return { ...prev, targets: next }
+  })
+  const closeBulk = () => setBulk((prev) => ({ ...prev, open: false }))
+
+  const openDiffPreview = () => {
+    setDiffRows(computeDiff())
+    setDiffOpen(true)
+  }
+  const confirmSave = async () => {
+    setDiffOpen(false)
+    await save()
+  }
+
+  /**
+   * Per-group inline Test. Reads the current draft values for the group's
+   * fields, posts them to the action key declared on the testField, and
+   * surfaces the {ok, message} response in a top-of-form StatusLight.
+   */
+  const runBulkApply = useCallback(async () => {
+    if (!bulk.path || bulk.targets.size === 0 || !callerProps) return
+    setBulk((prev) => ({ ...prev, busy: true, result: null }))
+    const targets = Array.from(bulk.targets).map((k) => {
+      const [s, ...rest] = k.split('::')
+      return { scope: s, scopeId: rest.join('::') }
+    })
+    try {
+      const res = await callAction(callerProps, getActionKey('systemConfigBulkSave'), '', {
+        values: { [bulk.path]: bulk.value },
+        sensitivePaths: bulk.field?.sensitive ? [bulk.path] : [],
+        targets,
+        actor: 'bulk-apply'
+      })
+      const body = res?.body || res
+      setBulk((prev) => ({ ...prev, busy: false, result: body }))
+    } catch (e) {
+      setBulk((prev) => ({ ...prev, busy: false, result: { ok: false, error: e.message } }))
+    }
+  }, [bulk.path, bulk.value, bulk.field, bulk.targets, callerProps])
+
+  const handleTestGroup = useCallback(async (group, sectionId) => {
+    const testField = (group.fields || []).find((f) => f && f.testActionKey)
+    if (!testField || !callerProps) return
+    setTestStatus({ tone: 'notice', message: `Testing ${group.label}…` })
+    try {
+      const payload = {}
+      for (const f of group.fields || []) {
+        const path = `${sectionId}/${group.id}/${f.id}`
+        payload[f.id] = getDisplayValue(path, coerceDefault(f))
+      }
+      const res = await callAction(callerProps, getActionKey(testField.testActionKey), '', payload)
+      const body = res?.body || res
+      if (body && body.ok) {
+        setTestStatus({ tone: 'positive', message: body.message || 'Connection OK' })
+      } else {
+        setTestStatus({ tone: 'negative', message: (body && body.message) || 'Test failed' })
+      }
+    } catch (e) {
+      setTestStatus({ tone: 'negative', message: e.message || 'Test failed' })
+    }
+  }, [callerProps, getDisplayValue])
+
+  // Sort once for everything below: editor/UI always presents schema in
+  // declared sortOrder (rather than raw insertion order).
+  const allSections = useMemo(() => sortByOrder(schema?.sections || []), [schema])
+  // Filter sections/groups/fields by the search box. A section is shown if
+  // any of its fields' labels (or ids) match; same for groups. Empty
+  // containers fall away so the operator only sees relevant results.
+  const sections = useMemo(() => {
+    const q = searchFilter.trim().toLowerCase()
+    const withSortedChildren = allSections.map((section) => ({
+      ...section,
+      groups: sortByOrder(section.groups || []).map((g) => ({
+        ...g,
+        fields: sortByOrder(g.fields || [])
+      }))
+    }))
+    if (!q) return withSortedChildren
+    const match = (s) => String(s || '').toLowerCase().includes(q)
+    const out = []
+    for (const section of withSortedChildren) {
+      const groups = []
+      for (const group of (section.groups || [])) {
+        const fields = (group.fields || []).filter(
+          (f) => match(f.label) || match(f.id)
+        )
+        if (fields.length || match(group.label) || match(group.id)) {
+          groups.push({ ...group, fields: fields.length ? fields : (group.fields || []) })
+        }
+      }
+      if (groups.length || match(section.label) || match(section.id)) {
+        out.push({ ...section, groups })
+      }
+    }
+    return out
+  }, [allSections, searchFilter])
+
   const [activeSectionId, setActiveSectionId] = useState(sections[0]?.id)
   const activeSection = useMemo(() => {
     if (sections.length === 0) return null
@@ -536,7 +746,7 @@ function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx 
     setCollapsedGroups(next)
   }
 
-  if (sections.length === 0) {
+  if (allSections.length === 0) {
     return (
       <Card>
         <div style={{ textAlign: 'center', padding: '40px 20px' }}>
@@ -552,11 +762,15 @@ function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx 
           </div>
           <Heading level={3} marginTop={0}>No configuration schema yet</Heading>
           <Text UNSAFE_style={{ color: PALETTE.textMuted, maxWidth: 460, display: 'inline-block' }}>
-            Open the Schema Designer to define sections, groups, and fields for your sync integrations.
+            {userRole === 'admin'
+              ? 'Open the Schema Designer to define sections, groups, and fields for your sync integrations.'
+              : 'A schema hasn’t been published yet. Ask an admin to set it up — schema editing is restricted to the admin role.'}
           </Text>
-          <Flex justifyContent="center" gap="size-150" marginTop="size-200">
-            <Button variant="cta" onPress={onEditSchema}>Open Schema Designer</Button>
-          </Flex>
+          {userRole === 'admin' && (
+            <Flex justifyContent="center" gap="size-150" marginTop="size-200">
+              <Button variant="cta" onPress={onEditSchema}>Open Schema Designer</Button>
+            </Flex>
+          )}
         </div>
       </Card>
     )
@@ -598,18 +812,225 @@ function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx 
                 : 'All changes saved'}
           </div>
           <Flex gap="size-100" alignItems="center">
+            <SearchField
+              aria-label="Filter sections, groups, fields"
+              placeholder="Search fields…"
+              value={searchFilter}
+              onChange={setSearchFilter}
+              width="size-2400"
+            />
             <Button variant="secondary" onPress={refresh} isDisabled={saving || loading}>
               Reload
             </Button>
             <Button variant="secondary" onPress={reset} isDisabled={saving || dirtyCount === 0}>
               Reset
             </Button>
-            <Button variant="cta" onPress={save} isDisabled={saving || loading || dirtyCount === 0}>
-              {saving ? 'Saving…' : `Save Config${dirtyCount ? ` (${dirtyCount})` : ''}`}
+            <Button
+              variant="cta"
+              onPress={openDiffPreview}
+              isDisabled={saving || loading || dirtyCount === 0 || hasErrors}
+            >
+              {saving ? 'Saving…' : `Review & Save${dirtyCount ? ` (${dirtyCount})` : ''}`}
             </Button>
           </Flex>
         </Flex>
+        {testStatus.message && (
+          <View marginTop="size-100">
+            <StatusLight variant={testStatus.tone}>{testStatus.message}</StatusLight>
+          </View>
+        )}
       </div>
+
+      {/* Diff preview modal — shown when the user clicks "Review & Save". */}
+      <DialogTrigger
+        isOpen={diffOpen}
+        onOpenChange={(open) => setDiffOpen(open)}
+      >
+        {/* DialogTrigger requires a trigger child; we hide it because we open
+            programmatically. */}
+        <div style={{ display: 'none' }} aria-hidden="true">trigger</div>
+        <Dialog size="L">
+          <Heading>Confirm {diffRows.length} change{diffRows.length === 1 ? '' : 's'}</Heading>
+          <Header>
+            <Text>scope = {scope.scope}:{scope.scopeId}</Text>
+          </Header>
+          <Divider />
+          <Content>
+            {diffRows.length === 0
+              ? <Text>Nothing to save.</Text>
+              : (
+                <div style={{ maxHeight: 360, overflow: 'auto' }}>
+                  {diffRows.map((r) => (
+                    <div
+                      key={r.path}
+                      style={{
+                        padding: '10px 0',
+                        borderBottom: `1px solid ${PALETTE.border}`,
+                        fontSize: 13
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, color: PALETTE.text }}>
+                        {r.sectionLabel} › {r.groupLabel} › {r.label}
+                        <span style={{
+                          marginLeft: 8,
+                          fontSize: 11,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.4,
+                          color: r.action === 'create' ? PALETTE.success
+                            : r.action === 'inherit' ? PALETTE.warning
+                              : PALETTE.accent
+                        }}>{r.action}</span>
+                      </div>
+                      <div style={{ color: PALETTE.textMuted, fontSize: 12, marginTop: 2 }}>{r.path}</div>
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: 8,
+                        marginTop: 6,
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                        fontSize: 12
+                      }}>
+                        <div>
+                          <div style={{ color: PALETTE.textMuted }}>old</div>
+                          <div style={{ color: PALETTE.danger, wordBreak: 'break-all' }}>
+                            {r.oldValue == null ? '∅' : String(r.oldValue)}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: PALETTE.textMuted }}>new</div>
+                          <div style={{ color: PALETTE.success, wordBreak: 'break-all' }}>
+                            {r.action === 'inherit' ? '(inherit from default)' : (r.newValue == null ? '∅' : String(r.newValue))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+          </Content>
+          <ButtonGroup>
+            <Button variant="secondary" onPress={() => setDiffOpen(false)}>Cancel</Button>
+            <Button variant="cta" onPress={confirmSave} isDisabled={diffRows.length === 0}>
+              Confirm & Save
+            </Button>
+          </ButtonGroup>
+        </Dialog>
+      </DialogTrigger>
+
+      {/* Bulk-apply ("Apply to…") dialog — multi-scope fan-out write. */}
+      <DialogTrigger isOpen={bulk.open} onOpenChange={(o) => { if (!o) closeBulk() }}>
+        <div style={{ display: 'none' }} aria-hidden="true">trigger</div>
+        <Dialog size="L">
+          <Heading>Apply value to scopes</Heading>
+          <Divider />
+          <Content>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: PALETTE.textMuted, marginBottom: 6 }}>
+                Path
+              </div>
+              <code style={{
+                display: 'block',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                fontSize: 12,
+                fontWeight: 600,
+                color: PALETTE.text,
+                background: PALETTE.surfaceMuted || 'rgba(0,0,0,0.05)',
+                border: `1px solid ${PALETTE.border}`,
+                borderRadius: 6,
+                padding: '6px 10px',
+                whiteSpace: 'nowrap',
+                overflowX: 'auto'
+              }}>
+                {bulk.path}
+              </code>
+            </div>
+            <div style={{ marginBottom: 12, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
+              <div style={{ color: PALETTE.textMuted }}>Will write</div>
+              <div style={{ color: PALETTE.success, wordBreak: 'break-all' }}>
+                {bulk.field?.sensitive ? '[sensitive — will encrypt]' : String(bulk.value ?? '')}
+              </div>
+            </div>
+            {(() => {
+              // Only offer the scopes this field is actually configurable in
+              // (its "Visible in" set in the schema). A default-only field
+              // should not fan out to websites/stores.
+              const allowWebsites = isFieldVisibleAtScope(bulk.field, 'websites')
+              const allowStores = isFieldVisibleAtScope(bulk.field, 'stores')
+              if (!allowWebsites && !allowStores) {
+                return (
+                  <Text UNSAFE_style={{ color: PALETTE.textMuted }}>
+                    This field is only configurable at the Default scope, so there are no other scopes to apply it to.
+                  </Text>
+                )
+              }
+              const cols = [allowWebsites, allowStores].filter(Boolean).length
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: cols === 2 ? '1fr 1fr' : '1fr', gap: 16 }}>
+                  {allowWebsites && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: PALETTE.textMuted, marginBottom: 6 }}>
+                        Websites
+                      </div>
+                      {(scopeTree.websites || []).length === 0 && (
+                        <Text UNSAFE_style={{ color: PALETTE.textMuted }}>None</Text>
+                      )}
+                      {(scopeTree.websites || []).map((w) => {
+                        const key = `websites::${w.id}`
+                        return (
+                          <div key={key}>
+                            <Checkbox isSelected={bulk.targets.has(key)} onChange={() => toggleBulkTarget(key)}>
+                              {w.name || w.code} <span style={{ color: PALETTE.textMuted, fontSize: 11 }}>({w.code})</span>
+                            </Checkbox>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {allowStores && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: PALETTE.textMuted, marginBottom: 6 }}>
+                        Stores
+                      </div>
+                      {(scopeTree.stores || []).length === 0 && (
+                        <Text UNSAFE_style={{ color: PALETTE.textMuted }}>None</Text>
+                      )}
+                      {(scopeTree.stores || []).map((s) => {
+                        const key = `stores::${s.id}`
+                        return (
+                          <div key={key}>
+                            <Checkbox isSelected={bulk.targets.has(key)} onChange={() => toggleBulkTarget(key)}>
+                              {s.name || s.code} <span style={{ color: PALETTE.textMuted, fontSize: 11 }}>({s.code})</span>
+                            </Checkbox>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+            {bulk.result && (
+              <View marginTop="size-200">
+                <StatusLight variant={bulk.result.ok ? 'positive' : 'negative'}>
+                  {bulk.result.ok
+                    ? `Applied to ${bulk.result.succeeded}/${bulk.result.total}`
+                    : (bulk.result.error || `${bulk.result.failed} of ${bulk.result.total} failed`)}
+                </StatusLight>
+              </View>
+            )}
+          </Content>
+          <ButtonGroup>
+            <Button variant="secondary" onPress={closeBulk} isDisabled={bulk.busy}>Close</Button>
+            <Button
+              variant="cta"
+              onPress={runBulkApply}
+              isDisabled={bulk.busy || bulk.targets.size === 0}
+            >
+              {bulk.busy ? 'Applying…' : `Apply to ${bulk.targets.size} scope${bulk.targets.size === 1 ? '' : 's'}`}
+            </Button>
+          </ButtonGroup>
+        </Dialog>
+      </DialogTrigger>
 
       <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
         <Sidebar
@@ -662,6 +1083,11 @@ function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx 
                   setFieldValue={setFieldValue}
                   setUseDefault={setUseDefault}
                   sensitivePlaceholder={SENSITIVE_PLACEHOLDER}
+                  fieldErrors={fieldErrors}
+                  searchFilter={searchFilter}
+                  onTest={handleTestGroup}
+                  onBulkApply={openBulkApply}
+                  userRole={userRole}
                 />
               ))
             )}
@@ -822,7 +1248,8 @@ function PageHeader ({
   onScopeChange,
   onReloadStores,
   onOpenTools,
-  toolsOpen
+  toolsOpen,
+  userRole
 }) {
   const isSchemaMode = mode === 'schema'
   return (
@@ -900,12 +1327,14 @@ function PageHeader ({
                 </ActionButton>
                 <Tooltip>Legacy migration tools</Tooltip>
               </TooltipTrigger>
-              <TooltipTrigger>
-                <ActionButton onPress={() => setMode('schema')} aria-label="Edit schema">
-                  <Edit />
-                </ActionButton>
-                <Tooltip>Edit schema</Tooltip>
-              </TooltipTrigger>
+              {userRole === 'admin' && (
+                <TooltipTrigger>
+                  <ActionButton onPress={() => setMode('schema')} aria-label="Edit schema">
+                    <Edit />
+                  </ActionButton>
+                  <Tooltip>Edit schema</Tooltip>
+                </TooltipTrigger>
+              )}
             </>
           )}
         </div>
@@ -1036,6 +1465,11 @@ function ToolsPanel ({
 // Root
 // ----------------------------------------------------------------------------
 export default function SystemConfig (props) {
+  // Resolve user role FIRST so it can be threaded into every hook below.
+  // Schema save needs role to pass the server-side admin gate.
+  const { role: userRole } = useUserRole(props)
+  const propsWithRole = useMemo(() => ({ ...props, userRole }), [props, userRole])
+
   const {
     schema,
     saveSchema,
@@ -1043,8 +1477,14 @@ export default function SystemConfig (props) {
     loading: schemaLoading,
     saving: schemaSaving,
     error: schemaError
-  } = useSystemConfigSchema(props)
+  } = useSystemConfigSchema(propsWithRole)
   const [mode, setMode] = useState('values')
+
+  // Belt + braces: if a non-admin somehow lands on schema mode (e.g. stale
+  // localStorage), force them back to values view.
+  useEffect(() => {
+    if (mode === 'schema' && userRole && userRole !== 'admin') setMode('values')
+  }, [mode, userRole])
   const [toolsOpen, setToolsOpen] = useState(false)
   // Export / Import state
   const [exporting, setExporting] = useState(false)
@@ -1081,7 +1521,7 @@ export default function SystemConfig (props) {
   // ValuesView render against the same hook instance. Previously each rendered
   // their own copy of useSystemConfig and changes never propagated.
   const configCtx = useSystemConfig(
-    props,
+    propsWithRole,
     mode === 'values' ? schema : { sections: [] }
   )
   const { scope, setScope, scopeTree, refreshScopeTree } = configCtx
@@ -1409,6 +1849,7 @@ export default function SystemConfig (props) {
           onReloadStores={refreshScopeTree}
           onOpenTools={() => setToolsOpen((o) => !o)}
           toolsOpen={toolsOpen}
+          userRole={userRole}
         />
 
         <div style={{ paddingTop: 24 }}>
@@ -1455,6 +1896,8 @@ export default function SystemConfig (props) {
                   toolsOpen={toolsOpen}
                   setToolsOpen={setToolsOpen}
                   configCtx={configCtx}
+                  callerProps={propsWithRole}
+                  userRole={userRole}
                 />
               )}
         </div>

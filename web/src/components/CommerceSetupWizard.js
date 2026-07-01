@@ -3,7 +3,7 @@ Copyright 2025 Adobe. All rights reserved.
 Licensed under the Apache License, Version 2.0
 */
 
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   View,
   Flex,
@@ -16,66 +16,82 @@ import {
   StatusLight,
   Divider,
   Form,
+  Well,
   Radio,
   RadioGroup
 } from '@adobe/react-spectrum'
 import { callAction } from '../utils'
 import { getActionKey } from '../settings'
 
-const OAUTH1A_FIELDS = [
-  { key: 'baseUrl',           label: 'Commerce base URL',   placeholder: 'https://store.example.com/', type: 'text',     required: true },
-  { key: 'consumerKey',       label: 'Consumer key',        placeholder: '',                            type: 'text',     required: true },
-  { key: 'consumerSecret',    label: 'Consumer secret',     placeholder: '',                            type: 'password', required: true },
-  { key: 'accessToken',       label: 'Access token',        placeholder: '',                            type: 'text',     required: true },
-  { key: 'accessTokenSecret', label: 'Access token secret', placeholder: '',                            type: 'password', required: true }
-]
+// Two integration types, two field shapes.
+//   • paas = OAuth 1.0a (Magento on-prem / PaaS Cloud). Operator pastes the
+//     consumer + access key/secret quartet.
+//   • saas = IMS OAuth (Adobe Commerce as a Cloud Service / ACCS). The
+//     bearer token is MINTED PER-REQUEST from the workspace's
+//     OAUTH_CLIENT_ID/SECRET/ORG_ID env vars with the `commerce.accs`
+//     scope, so we don't store a static token — only the tenant base URL
+//     and (optionally) an `x-api-key` override.
+const FIELD_DEFS = {
+  paas: [
+    { key: 'baseUrl',           label: 'Commerce base URL',   placeholder: 'https://store.example.com/', type: 'text' },
+    { key: 'consumerKey',       label: 'Consumer key',         placeholder: '',                          type: 'text' },
+    { key: 'consumerSecret',    label: 'Consumer secret',      placeholder: '',                          type: 'password' },
+    { key: 'accessToken',       label: 'Access token',         placeholder: '',                          type: 'text' },
+    { key: 'accessTokenSecret', label: 'Access token secret',  placeholder: '',                          type: 'password' }
+  ],
+  saas: [
+    {
+      key: 'baseUrl',
+      label: 'Commerce REST base URL (api host + tenant id)',
+      placeholder: 'https://na1-sandbox.api.commerce.adobe.com/<tenant-id>/',
+      type: 'text'
+    },
+    {
+      key: 'apiKey',
+      label: 'IMS API key (optional)',
+      placeholder: 'Defaults to workspace OAUTH_CLIENT_ID',
+      type: 'text',
+      optional: true
+    }
+  ]
+}
 
-const ACCS_FIELDS = [
-  { key: 'baseUrl',   label: 'Commerce REST base URL (api host + tenant id)', placeholder: 'https://<region>-sandbox.api.commerce.adobe.com/<tenant-id>/', type: 'text', required: true },
-  { key: 'imsApiKey', label: 'IMS API key (optional)', placeholder: 'Defaults to workspace OAUTH_CLIENT_ID', type: 'text', required: false }
-]
-
-const ALL_KEYS = ['baseUrl', 'consumerKey', 'consumerSecret', 'accessToken', 'accessTokenSecret', 'imsApiKey']
-const EMPTY = ALL_KEYS.reduce((a, k) => { a[k] = ''; return a }, {})
+function emptyValues (type) {
+  return FIELD_DEFS[type].reduce((a, f) => { a[f.key] = ''; return a }, {})
+}
 
 /**
- * First-run wizard for Adobe Commerce REST connection.
- *
- * Props:
- *   runtime, ims        — passed through to callAction
- *   initial             — masked saved values (used to prefill the URL when "Reconfigure")
- *   onCompleted()       — called after a successful save; parent should refetch status
- *   onCancel?()         — only rendered when present (Reconfigure mode)
+ * First-run wizard for the Adobe Commerce REST connection. Supports:
+ *   • OAuth 1.0a (PaaS / Magento) — static OAuth1a 4-tuple, stored encrypted.
+ *   • IMS OAuth (SaaS / ACCS) — base URL + optional x-api-key. Bearer is
+ *     minted at runtime from workspace OAUTH_* env vars using `commerce.accs`
+ *     scope, never persisted.
  */
-export default function CommerceSetupWizard ({ runtime, ims, initial, onCompleted, onCancel }) {
-  const [type, setType] = useState(() => (initial && initial.type === 'accs' ? 'accs' : 'oauth1a'))
+export default function CommerceSetupWizard ({ runtime, ims, initial, onCompleted, onCancel, decryptFailed }) {
+  const [connectionType, setConnectionType] = useState(
+    initial && initial.connectionType === 'saas' ? 'saas' : 'paas'
+  )
   const [values, setValues] = useState(() => ({
-    ...EMPTY,
+    ...emptyValues(connectionType),
     ...(initial && initial.baseUrl ? { baseUrl: initial.baseUrl } : {})
   }))
   const [testState, setTestState] = useState({ status: 'idle', message: '' })
   const [saveState, setSaveState] = useState({ status: 'idle', message: '' })
 
-  const set = (k) => (v) => setValues((prev) => ({ ...prev, [k]: v }))
+  const fields = FIELD_DEFS[connectionType]
+  const requiredKeys = useMemo(
+    () => fields.filter((f) => !f.optional).map((f) => f.key),
+    [fields]
+  )
+  const allFilled = requiredKeys.every((k) => String(values[k] || '').trim() !== '')
 
-  const activeFields = type === 'accs' ? ACCS_FIELDS : OAUTH1A_FIELDS
-  const allFilled = activeFields
-    .filter((f) => f.required)
-    .every((f) => String(values[f.key] || '').trim() !== '')
-
-  function buildPayload () {
-    if (type === 'accs') {
-      return { type: 'accs', baseUrl: values.baseUrl, imsApiKey: values.imsApiKey }
-    }
-    return {
-      type: 'oauth1a',
-      baseUrl: values.baseUrl,
-      consumerKey: values.consumerKey,
-      consumerSecret: values.consumerSecret,
-      accessToken: values.accessToken,
-      accessTokenSecret: values.accessTokenSecret
-    }
+  const onTypeChange = (next) => {
+    setConnectionType(next)
+    setValues((prev) => ({ ...emptyValues(next), baseUrl: prev.baseUrl || '' }))
+    setTestState({ status: 'idle', message: '' })
+    setSaveState({ status: 'idle', message: '' })
   }
+  const set = (k) => (v) => setValues((prev) => ({ ...prev, [k]: v }))
 
   async function handleTest () {
     setTestState({ status: 'running', message: 'Testing connection…' })
@@ -84,7 +100,7 @@ export default function CommerceSetupWizard ({ runtime, ims, initial, onComplete
         { runtime, ims },
         getActionKey('commerceConnectionTest'),
         '',
-        buildPayload()
+        { connectionType, ...values }
       )
       const body = res && res.body ? res.body : res
       if (body && body.ok) {
@@ -104,12 +120,11 @@ export default function CommerceSetupWizard ({ runtime, ims, initial, onComplete
         { runtime, ims },
         getActionKey('commerceConnectionSave'),
         '',
-        buildPayload()
+        { connectionType, ...values }
       )
       const body = res && res.body ? res.body : res
       if (body && body.ok && body.saved) {
         setSaveState({ status: 'ok', message: 'Saved. Loading the rest of the app…' })
-        // Hand off to parent — it should refetch status and unmount the wizard.
         if (typeof onCompleted === 'function') onCompleted(body)
       } else {
         setSaveState({ status: 'fail', message: (body && body.message) || 'Save failed' })
@@ -127,46 +142,70 @@ export default function CommerceSetupWizard ({ runtime, ims, initial, onComplete
   return (
     <View padding="size-400" maxWidth="size-6000" margin="0 auto">
       <Heading level={2}>Connect to Adobe Commerce</Heading>
-      <Text>
-        Enter the REST/OAuth credentials for your Commerce instance. They are encrypted before
-        being saved to App Builder Database. The rest of the app stays disabled until the
-        connection is verified.
-      </Text>
+      {decryptFailed ? (
+        <Well marginBottom="size-200" UNSAFE_style={{ borderColor: '#b58105' }}>
+          <Text UNSAFE_style={{ color: '#92400e' }}>
+            <strong>Existing credentials couldn't be decrypted.</strong>{' '}
+            They were encrypted with a different <code>SYSTEM_CONFIG_CRYPT_KEY</code>{' '}
+            than is configured now. Re-enter them below — the old record will be
+            replaced on save.
+          </Text>
+        </Well>
+      ) : (
+        <Text>
+          Enter the REST/OAuth credentials for your Commerce instance. They are
+          encrypted before being saved to App Builder Database. The rest of the
+          app stays disabled until the connection is verified.
+        </Text>
+      )}
       <Divider size="S" marginY="size-300" />
 
-      <RadioGroup
-        label="Integration type"
-        value={type}
-        onChange={(v) => { setType(v); setTestState({ status: 'idle', message: '' }) }}
-        orientation="horizontal"
-      >
-        <Radio value="oauth1a">OAuth 1.0a (PaaS / on-prem)</Radio>
-        <Radio value="accs">IMS OAuth (Adobe Commerce as a Cloud Service)</Radio>
-      </RadioGroup>
-      {type === 'accs' && (
-        <View marginTop="size-100" marginBottom="size-100">
-          <Text>
-            ACCS uses the workspace IMS Server-to-Server credential (with the
-            <code> commerce.accs </code>scope). Use the <strong>api</strong> host
-            (e.g. <code>na1-sandbox.api.commerce.adobe.com</code>), <strong>not</strong>
-            the <code>admin.*</code> URL, and include the tenant id segment as a
-            path prefix. The <code>OAUTH_CLIENT_ID</code>/<code>SECRET</code>/<code>ORG_ID</code>
-            in <code>.env</code> mint the bearer token.
-          </Text>
-        </View>
-      )}
+      <Form labelPosition="top" necessityIndicator="icon">
+        <RadioGroup
+          label="Integration type"
+          value={connectionType}
+          onChange={onTypeChange}
+          orientation="vertical"
+        >
+          <Radio value="paas">OAuth 1.0a (PaaS / on-prem)</Radio>
+          <Radio value="saas">IMS OAuth (Adobe Commerce as a Cloud Service)</Radio>
+        </RadioGroup>
 
-      <Form necessityIndicator="icon" labelPosition="top">
-        {activeFields.map((f) => (
+        {/* SaaS-specific help block — only shown for IMS OAuth. Explains
+            that the bearer is minted from workspace env vars and what the
+            base URL should look like. */}
+        {connectionType === 'saas' && (
+          <View
+            marginTop="size-100"
+            paddingX="size-200"
+            paddingY="size-150"
+            UNSAFE_style={{
+              background: '#f3f4f6',
+              border: '1px solid #e5e7eb',
+              borderRadius: 8
+            }}
+          >
+            <Text UNSAFE_style={{ fontSize: 13, color: '#374151' }}>
+              ACCS uses the workspace IMS Server-to-Server credential (with the
+              {' '}<code>commerce.accs</code> scope). Use the <strong>api</strong> host
+              {' '}(e.g. <code>na1-sandbox.api.commerce.adobe.com</code>), <strong>not</strong> the
+              {' '}<code>admin.*</code> URL, and include the tenant id segment as a
+              {' '}path prefix. The <code>OAUTH_CLIENT_ID</code>/<code>SECRET</code>/<code>ORG_ID</code>{' '}
+              in <code>.env</code> mint the bearer token.
+            </Text>
+          </View>
+        )}
+
+        {fields.map((f) => (
           <TextField
             key={f.key}
             label={f.label}
             placeholder={f.placeholder}
             type={f.type === 'password' ? 'password' : 'text'}
-            value={values[f.key]}
+            value={values[f.key] || ''}
             onChange={set(f.key)}
             autoComplete="off"
-            isRequired={f.required}
+            isRequired={!f.optional}
             width="100%"
           />
         ))}

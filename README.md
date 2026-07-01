@@ -41,7 +41,6 @@ and an extension point for host apps to add their own pages and actions.
 | App Builder Database (ABDB) auto-provisioning on deploy                         | `ext.config.yaml`                                   |
 | Host-extensible nav and pages                                                   | `configureWeb({ extraNav, extraPages })`            |
 | Auto-scaffolded host scaffold on `npm install`                                  | `scripts/setup.js` (postinstall hook)               |
-| Auto-bump host React/Spectrum/Adobe deps to React-18 floor                      | `scripts/setup.js` mutates host `package.json`      |
 
 
 ---
@@ -53,21 +52,16 @@ and an extension point for host apps to add their own pages and actions.
 aio app init my-commerce-admin
 cd my-commerce-admin
 
-# 2. Install with --legacy-peer-deps on first install.
-#    aio's default template pins React 16; this package requires React 18.
+# 2. Install the package — postinstall scaffolds everything
 npm install --save \
   @adobedjangir/commerce-admin-management@latest \
   @adobedjangir/commerce-admin-get-config@latest
 
-# 3. Run the setup helper. Bumps host deps to React 18 / Spectrum 4 floor,
-#    scaffolds web-src/, removes the dx/excshell/1 boilerplate, and
-#    generates AIO_DB_REGION + SYSTEM_CONFIG_CRYPT_KEY in .env.
-npx commerce-admin-management-setup
+# 3. Fill in .env (see required values below)
+cp env.dist .env
+$EDITOR .env
 
-# 4. Apply the bumped versions
-npm install
-
-# 5. Deploy. ABDB is auto-provisioned; actions + web assets ship to CDN.
+# 4. Deploy. ABDB is auto-provisioned; 11 actions + web assets ship to CDN.
 aio app deploy
 ```
 
@@ -117,7 +111,7 @@ bundle has a ready-to-consume artifact.
 | `OAUTH_CLIENT_SECRET`     | same                                                                                                                                                                                                            |
 | `OAUTH_ORG_ID`            | same                                                                                                                                                                                                            |
 | `OAUTH_SCOPES`            | should include `AdobeID, openid, read_organizations, additional_info.projectedProductContext, additional_info.roles, adobeio_api, read_client_secret, manage_client_secrets, event_receiver_api, commerce.accs` |
-| `AIO_DB_REGION`           | One of `amer                                                                                                                                                                                                    |
+| `AIO_DB_REGION`           | One of `amer | emea | apac | aus`. Must match the region where the App Builder Database service is entitled.                                                                                                    |
 | `SYSTEM_CONFIG_CRYPT_KEY` | At least 8 chars. **Generate once with `openssl rand -base64 32` and never rotate** — rotating breaks every encrypted value already in ABDB.                                                                    |
 
 

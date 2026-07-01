@@ -20,7 +20,7 @@ export { useConfirm } from './hooks/useConfirm'
 
 export * from './schema/systemConfigSchema'
 export { buildStoreMappingsFromCommercePayload } from './utils/storeMappingsFromCommerceRest'
-export { callAction } from './utils'
+export { callAction, resolveActor } from './utils'
 export {
   configureWeb,
   getExtensionId,

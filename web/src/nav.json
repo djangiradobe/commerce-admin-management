@@ -1,10 +1,17 @@
 {
   "items": [
     {
-      "id": "system-config",
-      "path": "/",
-      "label": "System Configurations",
-      "icon": "Settings"
+      "id": "system",
+      "label": "System",
+      "icon": "Settings",
+      "children": [
+        {
+          "id": "system-config",
+          "path": "/",
+          "label": "System Configurations",
+          "icon": "Settings"
+        }
+      ]
     }
   ]
 }

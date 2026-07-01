@@ -208,6 +208,18 @@ async function main (params) {
       }
     }
 
+    // Mutations beyond 'get' require admin role. The UI passes the role
+    // it resolved via ims-user-profile; the server is the authoritative gate.
+    if (op === 'save' || op === 'reset' || op === 'import') {
+      const callerRole = typeof params.role === 'string' ? params.role : null
+      if (callerRole && callerRole !== 'admin') {
+        return errorResponse(403,
+          `Schema editing requires 'admin' role (caller has '${callerRole}')`,
+          logger
+        )
+      }
+    }
+
     if (op === 'save') {
       if (!params.schema) {
         return errorResponse(400, 'schema is required', logger)
