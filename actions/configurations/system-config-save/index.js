@@ -65,11 +65,23 @@ async function tryFindOne (collection, query) {
   }
 }
 
+// Per-warm-container schema cache. The schema doc is read on EVERY value save
+// (for validation) but changes rarely, so caching it ~30s removes a round-trip
+// from the hot save path. Short TTL bounds staleness after a schema edit made
+// in another container; schema edits are admin-only and infrequent.
+let _schemaCache = null
+let _schemaCacheAt = 0
+const SCHEMA_TTL_MS = 30 * 1000
+
 async function loadSchema (client) {
+  const now = Date.now()
+  if (_schemaCache !== null && (now - _schemaCacheAt) < SCHEMA_TTL_MS) return _schemaCache
   try {
     const col = await client.collection(SCHEMA_COLLECTION)
     const doc = await tryFindOne(col, { _id: SCHEMA_DOC_ID })
-    return doc && doc.schema ? doc.schema : null
+    _schemaCache = doc && doc.schema ? doc.schema : null
+    _schemaCacheAt = now
+    return _schemaCache
   } catch (_) {
     return null
   }
