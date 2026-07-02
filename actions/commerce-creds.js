@@ -305,7 +305,14 @@ async function testCommerceConnection (creds, logger, params = {}) {
       return { ok: false, message: `Bearer mint failed: ${err.message}` }
     }
     const apiKey = shape.apiKey || params.OAUTH_CLIENT_ID || ''
-    const probe = creds.testPath ? String(creds.testPath).replace(/^\/+/, '') : ''
+    // GETting the bare base URL returns 404 (no resource at `/`), so probe a
+    // real REST endpoint. Default to the standard Commerce REST config
+    // endpoint; operators can override via creds.testPath for ACCS instances
+    // whose REST path differs from their API docs.
+    const DEFAULT_SAAS_PROBE = 'rest/all/V1/store/storeConfigs'
+    const probe = creds.testPath
+      ? String(creds.testPath).replace(/^\/+/, '')
+      : DEFAULT_SAAS_PROBE
     const url = shape.url + probe
     try {
       const headers = {
