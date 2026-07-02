@@ -27,6 +27,7 @@ export {
   getActionKey,
   getNavItems,
   getPageComponent,
+  getUserRoleProvider,
   DEFAULT_ACTION_KEYS
 } from './settings'
 export { NAV_ICONS, getNavIcon } from './nav-icons'

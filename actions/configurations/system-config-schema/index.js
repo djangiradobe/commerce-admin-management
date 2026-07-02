@@ -9,6 +9,10 @@ const { Core } = require('@adobe/aio-sdk')
 const { errorResponse, checkMissingRequestInputs } = require('../../utils')
 const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
 
+// Soft RBAC hook (see system-config-save for the literal-require rationale).
+let rbacHook = null
+try { rbacHook = require('@adobedjangir/commerce-admin-ims-access/hook') } catch (_) { rbacHook = null }
+
 const COLLECTION = 'system_config_schema'
 const DOC_ID = 'v1'
 const FIELD_TYPES = new Set(['text', 'textarea', 'password', 'number', 'select', 'boolean'])
@@ -208,15 +212,19 @@ async function main (params) {
       }
     }
 
-    // Mutations beyond 'get' require admin role. The UI passes the role
-    // it resolved via ims-user-profile; the server is the authoritative gate.
+    // Mutations beyond 'get' require admin role — resolved SERVER-SIDE from
+    // the caller's token via the ims-access hook (authoritative). Falls back
+    // to the client-supplied params.role only when the hook isn't installed.
     if (op === 'save' || op === 'reset' || op === 'import') {
-      const callerRole = typeof params.role === 'string' ? params.role : null
-      if (callerRole && callerRole !== 'admin') {
-        return errorResponse(403,
-          `Schema editing requires 'admin' role (caller has '${callerRole}')`,
-          logger
-        )
+      if (rbacHook && rbacHook.assertMinRole) {
+        let roleErr = null
+        try { roleErr = await rbacHook.assertMinRole(params, 'admin') } catch (_) { roleErr = null }
+        if (roleErr) return errorResponse(403, roleErr, logger)
+      } else {
+        const callerRole = typeof params.role === 'string' ? params.role : null
+        if (callerRole && callerRole !== 'admin') {
+          return errorResponse(403, `Schema editing requires 'admin' role (caller has '${callerRole}')`, logger)
+        }
       }
     }
 

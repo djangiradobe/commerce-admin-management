@@ -47,6 +47,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -67,6 +68,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -87,6 +89,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
             IO_EVENTS_PROVIDER_ID: $IO_EVENTS_PROVIDER_ID
             IO_EVENTS_EVENT_CODE: $IO_EVENTS_EVENT_CODE
             IO_EVENTS_API_KEY: $IO_EVENTS_API_KEY
@@ -109,6 +112,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -129,6 +133,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -152,6 +157,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -172,6 +178,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -192,6 +199,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -212,6 +220,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -232,6 +241,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true
@@ -252,6 +262,7 @@ runtimeManifest:
             IMS_OAUTH_S2S_ORG_ID: $IMS_OAUTH_S2S_ORG_ID
             IMS_OAUTH_S2S_SCOPES: $IMS_OAUTH_S2S_SCOPES
             AIO_DB_REGION: $AIO_DB_REGION
+            SUPER_ADMIN_EMAILS: $SUPER_ADMIN_EMAILS
           annotations:
             require-adobe-auth: false
             include-ims-credentials: true

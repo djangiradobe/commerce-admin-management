@@ -284,9 +284,11 @@ function FieldRow ({
 }) {
   const allowed = isFieldVisibleAtScope(field, scope.scope)
   const showUseDefault = scope.scope !== 'default' && allowed
-  // RBAC: disable the input when caller lacks the field's required role.
+  // RBAC: viewers are read-only (need editor+ to change any value); and the
+  // input is also disabled when the caller lacks the field's required role.
+  const canWrite = hasRole(userRole || 'admin', 'editor')
   const rbacOk = hasRole(userRole || 'admin', field.requiredRole)
-  const editorDisabled = !allowed || (showUseDefault && inherited) || !rbacOk
+  const editorDisabled = !canWrite || !allowed || (showUseDefault && inherited) || !rbacOk
   const isTextarea = field.type === 'textarea'
 
   const originLabel = origin
@@ -367,7 +369,7 @@ function FieldRow ({
             Use Default
           </Checkbox>
         )}
-        {onBulkApply && allowed && (
+        {onBulkApply && allowed && canWrite && (
           <Button
             variant="secondary"
             isQuiet
@@ -594,6 +596,8 @@ function Sidebar ({ sections, activeSectionId, onSelect }) {
 // Values view
 // ----------------------------------------------------------------------------
 function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx, callerProps, userRole }) {
+  // Viewers are read-only; editors + admins can save config values.
+  const canWrite = hasRole(userRole || 'admin', 'editor')
   const {
     scope,
     scopeTree,
@@ -805,11 +809,13 @@ function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx,
       >
         <Flex gap="size-150" alignItems="center" justifyContent="space-between">
           <div style={{ fontSize: 12, color: PALETTE.textMuted }}>
-            {dirtyCount > 0
-              ? <span style={{ color: PALETTE.warning, fontWeight: 600 }}>{dirtyCount} unsaved change{dirtyCount === 1 ? '' : 's'}</span>
-              : savedAt && !saving
-                ? <span style={{ color: PALETTE.success, fontWeight: 600 }}>✓ Saved {new Date(savedAt).toLocaleTimeString()}</span>
-                : 'All changes saved'}
+            {!canWrite
+              ? <span style={{ color: PALETTE.textMuted, fontWeight: 600 }}>Read-only — your role ({userRole || 'viewer'}) can view but not change config. Editor or admin required.</span>
+              : dirtyCount > 0
+                ? <span style={{ color: PALETTE.warning, fontWeight: 600 }}>{dirtyCount} unsaved change{dirtyCount === 1 ? '' : 's'}</span>
+                : savedAt && !saving
+                  ? <span style={{ color: PALETTE.success, fontWeight: 600 }}>✓ Saved {new Date(savedAt).toLocaleTimeString()}</span>
+                  : 'All changes saved'}
           </div>
           <Flex gap="size-100" alignItems="center">
             <SearchField
@@ -828,7 +834,7 @@ function ValuesView ({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx,
             <Button
               variant="cta"
               onPress={openDiffPreview}
-              isDisabled={saving || loading || dirtyCount === 0 || hasErrors}
+              isDisabled={!canWrite || saving || loading || dirtyCount === 0 || hasErrors}
             >
               {saving ? 'Saving…' : `Review & Save${dirtyCount ? ` (${dirtyCount})` : ''}`}
             </Button>

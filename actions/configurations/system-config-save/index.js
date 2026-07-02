@@ -120,6 +120,16 @@ async function main (params) {
   const sensitiveSet = new Set(sensitivePaths)
   const actor = resolveActor(params)
 
+  // RBAC gate: writing config requires editor or admin. Viewers are read-only.
+  // Enforced server-side via the ims-access hook (resolves the caller's role
+  // from their token). Fail-open only when the add-on/role can't be resolved.
+  if (rbacHook && rbacHook.assertMinRole) {
+    try {
+      const roleErr = await rbacHook.assertMinRole(params, 'editor')
+      if (roleErr) return { statusCode: 403, body: { error: roleErr } }
+    } catch (_) { /* resolution failure → don't block (UI still gates) */ }
+  }
+
   let dbHandle
   try {
     dbHandle = await getClient(params)

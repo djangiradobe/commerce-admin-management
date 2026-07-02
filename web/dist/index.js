@@ -2297,8 +2297,9 @@ function FieldRow({
 }) {
   const allowed = isFieldVisibleAtScope(field, scope.scope);
   const showUseDefault = scope.scope !== "default" && allowed;
+  const canWrite = hasRole(userRole || "admin", "editor");
   const rbacOk = hasRole(userRole || "admin", field.requiredRole);
-  const editorDisabled = !allowed || showUseDefault && inherited || !rbacOk;
+  const editorDisabled = !canWrite || !allowed || showUseDefault && inherited || !rbacOk;
   const isTextarea = field.type === "textarea";
   const originLabel = origin ? origin.scope === "default" ? "inherited from Default Config" : `set at ${origin.scope}:${origin.scopeId}` : "unset";
   return /* @__PURE__ */ jsxs3(
@@ -2372,7 +2373,7 @@ function FieldRow({
               children: "Use Default"
             }
           ),
-          onBulkApply && allowed && /* @__PURE__ */ jsx3(
+          onBulkApply && allowed && canWrite && /* @__PURE__ */ jsx3(
             Button2,
             {
               variant: "secondary",
@@ -2599,6 +2600,7 @@ function Sidebar({ sections, activeSectionId, onSelect }) {
 }
 function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx, callerProps, userRole }) {
   var _a, _b, _c, _d;
+  const canWrite = hasRole(userRole || "admin", "editor");
   const {
     scope,
     scopeTree,
@@ -2769,7 +2771,11 @@ function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx, 
         },
         children: [
           /* @__PURE__ */ jsxs3(Flex2, { gap: "size-150", alignItems: "center", justifyContent: "space-between", children: [
-            /* @__PURE__ */ jsx3("div", { style: { fontSize: 12, color: PALETTE.textMuted }, children: dirtyCount > 0 ? /* @__PURE__ */ jsxs3("span", { style: { color: PALETTE.warning, fontWeight: 600 }, children: [
+            /* @__PURE__ */ jsx3("div", { style: { fontSize: 12, color: PALETTE.textMuted }, children: !canWrite ? /* @__PURE__ */ jsxs3("span", { style: { color: PALETTE.textMuted, fontWeight: 600 }, children: [
+              "Read-only \u2014 your role (",
+              userRole || "viewer",
+              ") can view but not change config. Editor or admin required."
+            ] }) : dirtyCount > 0 ? /* @__PURE__ */ jsxs3("span", { style: { color: PALETTE.warning, fontWeight: 600 }, children: [
               dirtyCount,
               " unsaved change",
               dirtyCount === 1 ? "" : "s"
@@ -2795,7 +2801,7 @@ function ValuesView({ schema, onEditSchema, toolsOpen, setToolsOpen, configCtx, 
                 {
                   variant: "cta",
                   onPress: openDiffPreview,
-                  isDisabled: saving || loading || dirtyCount === 0 || hasErrors,
+                  isDisabled: !canWrite || saving || loading || dirtyCount === 0 || hasErrors,
                   children: saving ? "Saving\u2026" : `Review & Save${dirtyCount ? ` (${dirtyCount})` : ""}`
                 }
               )
@@ -4431,6 +4437,7 @@ export {
   getNavIcon,
   getNavItems,
   getPageComponent,
+  getUserRoleProvider,
   isFieldSensitive,
   isFieldVisibleAtScope,
   nextSortOrder,
