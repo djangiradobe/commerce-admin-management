@@ -109,27 +109,60 @@ function maskCreds (creds) {
   }
 }
 
+// Parse a scopes value that may be a JSON array string (["a","b"]) OR a
+// comma-separated string ("a, b, c") OR an actual array. Returns [] when empty.
+function parseScopes (raw) {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.map((s) => String(s).trim()).filter(Boolean)
+  const s = String(raw).trim()
+  if (!s) return []
+  if (s.startsWith('[')) {
+    try {
+      const arr = JSON.parse(s)
+      if (Array.isArray(arr)) return arr.map((x) => String(x).trim()).filter(Boolean)
+    } catch (_) { /* fall through to CSV parse */ }
+  }
+  return s.split(',').map((x) => x.trim()).filter(Boolean)
+}
+
+// Scopes Adobe Commerce S2S REST requires. Used only as a fallback when the
+// workspace didn't pass OAUTH_SCOPES / IMS_OAUTH_S2S_SCOPES. `additional_info.roles`
+// and `additional_info.projectedProductContext` embed the caller's roles +
+// product context into the token — Commerce reads these to authorize; without
+// them the token authenticates but resolves to no permissions.
+// https://developer.adobe.com/commerce/webapi/rest/authentication/server-to-server
+const DEFAULT_ACCS_SCOPES = [
+  'openid', 'AdobeID', 'email', 'profile',
+  'additional_info.roles', 'additional_info.projectedProductContext', 'commerce.accs'
+]
+
 /**
  * Mint a SaaS-side bearer token from the workspace's IMS Server-to-Server
- * credential. Scope `commerce.accs` is what Adobe Commerce as a Cloud
- * Service requires for tenant-scoped REST. Tokens are short-lived; we
- * mint per-request rather than caching to keep secret-rotation safe.
+ * credential. Reads client/secret/org/scopes from params, preferring the
+ * OAUTH_* set and falling back to IMS_OAUTH_S2S_* when OAUTH_* is absent.
+ * Tokens are short-lived; we mint per-request to keep secret-rotation safe.
  *
- * Returns the access-token string. Throws when the workspace credentials
- * are missing or IMS rejects them.
+ * Returns the access-token string. Throws when creds are missing or IMS rejects.
  */
 async function mintSaasBearerToken (params) {
-  const clientId = params.OAUTH_CLIENT_ID
-  const clientSecret = params.OAUTH_CLIENT_SECRET
-  const orgId = params.OAUTH_ORG_ID
+  const clientId = params.OAUTH_CLIENT_ID || params.IMS_OAUTH_S2S_CLIENT_ID
+  const clientSecret = params.OAUTH_CLIENT_SECRET || params.IMS_OAUTH_S2S_CLIENT_SECRET
+  const orgId = params.OAUTH_ORG_ID || params.IMS_OAUTH_S2S_ORG_ID
   if (!clientId || !clientSecret || !orgId) {
-    throw new Error('SaaS bearer mint requires OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_ORG_ID')
+    throw new Error('SaaS bearer mint requires OAUTH_CLIENT_ID/SECRET/ORG_ID (or the IMS_OAUTH_S2S_* equivalents)')
   }
+  // Prefer configured scopes; fall back to IMS_OAUTH_S2S_SCOPES, then the
+  // documented ACCS default. `commerce.accs` is force-added if a configured
+  // set somehow omits it, since it's mandatory for tenant-scoped REST.
+  let scopes = parseScopes(params.OAUTH_SCOPES)
+  if (!scopes.length) scopes = parseScopes(params.IMS_OAUTH_S2S_SCOPES)
+  if (!scopes.length) scopes = DEFAULT_ACCS_SCOPES.slice()
+  if (!scopes.includes('commerce.accs')) scopes.push('commerce.accs')
+
   const { Ims } = require('@adobe/aio-lib-ims')
   const ims = new Ims()
   const tokenResult = await ims.getAccessTokenByClientCredentials(
-    clientId, clientSecret, orgId,
-    ['AdobeID', 'openid', 'read_organizations', 'commerce.accs']
+    clientId, clientSecret, orgId, scopes
   )
   const token = tokenResult?.access_token?.token ||
     (typeof tokenResult?.payload?.access_token === 'string' ? tokenResult.payload.access_token : null)
@@ -304,7 +337,8 @@ async function testCommerceConnection (creds, logger, params = {}) {
     } catch (err) {
       return { ok: false, message: `Bearer mint failed: ${err.message}` }
     }
-    const apiKey = shape.apiKey || params.OAUTH_CLIENT_ID || ''
+    const apiKey = shape.apiKey || params.OAUTH_CLIENT_ID || params.IMS_OAUTH_S2S_CLIENT_ID || ''
+    const orgId = params.OAUTH_ORG_ID || params.IMS_OAUTH_S2S_ORG_ID || ''
     // GETting the bare base URL returns 404 (no resource at `/`), so probe a
     // real REST endpoint. For ACCS the tenant id is already in the base URL,
     // so the PaaS-style `rest/<store>/` prefix does NOT apply — the path is
@@ -320,9 +354,33 @@ async function testCommerceConnection (creds, logger, params = {}) {
         Accept: 'application/json'
       }
       if (apiKey) headers['x-api-key'] = apiKey
+      // Required by the Commerce S2S REST auth spec alongside the bearer.
+      if (orgId) headers['x-gw-ims-org-id'] = orgId
       const res = await fetch(url, { method: 'GET', headers })
       if (!res.ok) {
-        return { ok: false, message: `HTTP ${res.status} from ${url}` }
+        // Surface the Commerce response body — it's far more actionable than a
+        // bare status. In particular a 401 with an ACL message means the token
+        // authenticated fine but the API consumer lacks Commerce permissions.
+        let detail = ''
+        let aclResource = null
+        try {
+          const body = await res.text()
+          try {
+            const parsed = JSON.parse(body)
+            detail = parsed.message
+              ? parsed.message.replace('%resources', (parsed.parameters && parsed.parameters.resources) || 'resources')
+              : body
+            if (parsed.parameters && parsed.parameters.resources) aclResource = parsed.parameters.resources
+          } catch (_) { detail = body }
+        } catch (_) { /* no body */ }
+        if (aclResource) {
+          return {
+            ok: false,
+            message: `Authenticated, but the API consumer is not authorized for "${aclResource}". ` +
+              `Grant this resource to the integration/role in Commerce admin (Resource Access), then retry. (HTTP ${res.status})`
+          }
+        }
+        return { ok: false, message: `HTTP ${res.status} from ${url}${detail ? ` — ${String(detail).slice(0, 200)}` : ''}` }
       }
       return { ok: true, message: `Connected — ${url} responded ${res.status}` }
     } catch (err) {
@@ -386,11 +444,80 @@ async function getCommerceCreds (params, logger) {
 }
 
 /**
- * Convenience: returns a ready-to-use OAuth1a client built from stored creds.
+ * Bearer-token Commerce client for SaaS / ACCS instances. Mirrors the
+ * get/post/put/delete interface of getCommerceOauthClient (returning parsed
+ * JSON) but authenticates with a per-call IMS bearer (commerce.accs scope) +
+ * optional x-api-key instead of OAuth1a HMAC signing.
+ *
+ * ACCS REST endpoints live directly under the tenant base URL at /V1/<resource>
+ * — there is NO /rest/<storeCode>/ prefix (that PaaS shape 404s on ACCS).
+ * Resource strings are passed prefix-less by callers (e.g. 'store/storeViews'),
+ * exactly as with the OAuth1a client, so the two are drop-in interchangeable.
+ */
+function getStoredCommerceSaasClient (creds, params, logger) {
+  const log = logger && typeof logger.error === 'function' ? logger : { error: () => {} }
+  const shape = toSaasClientShape(creds) || {}
+  const baseUrl = shape.url
+  const apiKey = shape.apiKey || params.OAUTH_CLIENT_ID || params.IMS_OAUTH_S2S_CLIENT_ID || ''
+  const orgId = params.OAUTH_ORG_ID || params.IMS_OAUTH_S2S_ORG_ID || ''
+  const makeUrl = (resource) => baseUrl + 'V1/' + String(resource || '').replace(/^\/+/, '')
+
+  async function call (method, resource, body, customHeaders = {}) {
+    const bearer = await mintSaasBearerToken(params)
+    const headers = {
+      Authorization: 'Bearer ' + bearer,
+      Accept: 'application/json',
+      ...(apiKey ? { 'x-api-key': apiKey } : {}),
+      ...(orgId ? { 'x-gw-ims-org-id': orgId } : {}),
+      ...customHeaders
+    }
+    const opts = { method, headers }
+    if (body !== undefined && body !== null) {
+      headers['Content-Type'] = 'application/json'
+      opts.body = JSON.stringify(body)
+    }
+    let res
+    try {
+      res = await fetch(makeUrl(resource), opts)
+    } catch (err) {
+      log.error(err)
+      throw err
+    }
+    const text = await res.text()
+    if (!res.ok) {
+      // Preserve the Commerce response body on the error so callers can see
+      // the real reason (e.g. an ACL denial names the missing resource).
+      const err = new Error(`HTTP ${res.status}: ${String(text).slice(0, 300)}`)
+      err.status = res.status
+      err.response = { statusCode: res.status, body: text }
+      throw err
+    }
+    try { return text ? JSON.parse(text) : null } catch (_) { return text }
+  }
+
+  // Signatures mirror the OAuth1a client: (resource, [body], requestToken?, customHeaders?).
+  return {
+    get:    (r, _t, h)    => call('GET', r, null, h),
+    post:   (r, b, _t, h) => call('POST', r, b, h),
+    put:    (r, b, _t, h) => call('PUT', r, b, h),
+    delete: (r, _t, h)    => call('DELETE', r, null, h)
+  }
+}
+
+/**
+ * Convenience: returns a ready-to-use Commerce REST client built from stored
+ * creds, dispatched by connection type:
+ *   - PaaS (oauth1a): HMAC-SHA256 signed requests via getCommerceOauthClient
+ *   - SaaS (accs):    IMS bearer-token requests via getStoredCommerceSaasClient
+ * Kept under the historical name for backwards-compat with callers.
  */
 async function getStoredCommerceOauthClient (params, logger) {
   const creds = await getCommerceCreds(params, logger)
-  return getCommerceOauthClient(toClientShape(creds), logger || { error: () => {} })
+  const safeLogger = logger || { error: () => {} }
+  if (creds && normalizeConnectionType(creds.connectionType) === CONNECTION_TYPE_SAAS) {
+    return getStoredCommerceSaasClient(creds, params, safeLogger)
+  }
+  return getCommerceOauthClient(toClientShape(creds), safeLogger)
 }
 
 /**
@@ -452,6 +579,7 @@ module.exports = {
   testCommerceConnection,
   getCommerceCreds,
   getStoredCommerceOauthClient,
+  getStoredCommerceSaasClient,
   probeCommerceCreds,
   toClientShape,
   toSaasClientShape,
