@@ -306,10 +306,10 @@ async function testCommerceConnection (creds, logger, params = {}) {
     }
     const apiKey = shape.apiKey || params.OAUTH_CLIENT_ID || ''
     // GETting the bare base URL returns 404 (no resource at `/`), so probe a
-    // real REST endpoint. Default to the standard Commerce REST config
-    // endpoint; operators can override via creds.testPath for ACCS instances
-    // whose REST path differs from their API docs.
-    const DEFAULT_SAAS_PROBE = 'rest/all/V1/store/storeConfigs'
+    // real REST endpoint. For ACCS the tenant id is already in the base URL,
+    // so the PaaS-style `rest/<store>/` prefix does NOT apply — the path is
+    // just `V1/...`. Operators can override via creds.testPath.
+    const DEFAULT_SAAS_PROBE = 'V1/store/storeConfigs'
     const probe = creds.testPath
       ? String(creds.testPath).replace(/^\/+/, '')
       : DEFAULT_SAAS_PROBE
