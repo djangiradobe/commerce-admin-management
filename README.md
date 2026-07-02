@@ -11,8 +11,8 @@ and an extension point for host apps to add their own pages and actions.
 
 1. [What you get](#what-you-get)
 2. [Quick start](#quick-start)
-3. [What `npm install` scaffolds for you](#what-npm-install-scaffolds-for-you)
-4. [Required `.env` values](#required-env-values)
+3. [What](#what-npm-install-scaffolds-for-you) `npm install` [scaffolds for you](#what-npm-install-scaffolds-for-you)
+4. [Required](#required-env-values) `.env` [values](#required-env-values)
 5. [Architecture](#architecture)
 6. [Built-in actions](#built-in-actions)
 7. [Storage model](#storage-model)
@@ -26,6 +26,8 @@ and an extension point for host apps to add their own pages and actions.
 15. [Troubleshooting](#troubleshooting)
 
 ---
+
+
 
 ## What you get
 
@@ -45,6 +47,8 @@ and an extension point for host apps to add their own pages and actions.
 
 ---
 
+
+
 ## Quick start
 
 ```bash
@@ -56,6 +60,9 @@ cd my-commerce-admin
 npm install --save \
   @adobedjangir/commerce-admin-management@latest \
   @adobedjangir/commerce-admin-get-config@latest
+
+npx commerce-admin-management-setup
+npm install
 
 # 3. Fill in .env (see required values below)
 cp env.dist .env
@@ -77,6 +84,8 @@ aio app run
 ```
 
 ---
+
+
 
 ## What `npm install` scaffolds for you
 
@@ -102,6 +111,8 @@ bundle has a ready-to-consume artifact.
 
 ---
 
+
+
 ## Required `.env` values
 
 
@@ -111,15 +122,17 @@ bundle has a ready-to-consume artifact.
 | `OAUTH_CLIENT_SECRET`     | same                                                                                                                                                                                                            |
 | `OAUTH_ORG_ID`            | same                                                                                                                                                                                                            |
 | `OAUTH_SCOPES`            | should include `AdobeID, openid, read_organizations, additional_info.projectedProductContext, additional_info.roles, adobeio_api, read_client_secret, manage_client_secrets, event_receiver_api, commerce.accs` |
-| `AIO_DB_REGION`           | One of `amer | emea | apac | aus`. Must match the region where the App Builder Database service is entitled.                                                                                                    |
-| `SYSTEM_CONFIG_CRYPT_KEY` | At least 8 chars. **Generate once with `openssl rand -base64 32` and never rotate** — rotating breaks every encrypted value already in ABDB.                                                                    |
+| `AIO_DB_REGION`           | One of `amer                                                                                                                                                                                                    |
+| `SYSTEM_CONFIG_CRYPT_KEY` | At least 8 chars. **Generate once with** `openssl rand -base64 32` **and never rotate** — rotating breaks every encrypted value already in ABDB.                                                                |
 
 
 Commerce REST creds (`COMMERCE_BASE_URL`, `COMMERCE_CONSUMER_KEY`, …) are
-**no longer set via `.env`**. They are entered in the in-app wizard and
+**no longer set via** `.env`. They are entered in the in-app wizard and
 encrypted into ABDB under `default/_system/commerce/connection`.
 
 ---
+
+
 
 ## Architecture
 
@@ -158,6 +171,8 @@ encrypted into ABDB under `default/_system/commerce/connection`.
 
 ---
 
+
+
 ## Built-in actions
 
 All under runtime package `**CommerceAdminManagement**`.
@@ -182,6 +197,8 @@ so they receive the host's OAuth credentials via env-injection — they don't
 require a user IMS token.
 
 ---
+
+
 
 ## Storage model
 
@@ -208,6 +225,8 @@ Schema is stored separately in `system_config_schema` (single doc `_id: 'v1'`).
 
 ---
 
+
+
 ## Encryption
 
 `SYSTEM_CONFIG_CRYPT_KEY` is the master secret for AES-256-GCM.
@@ -229,6 +248,8 @@ is **strongly discouraged in production** — your IMS client secret rotates;
 your at-rest data must not.
 
 ---
+
+
 
 ## Commerce connection flow
 
@@ -257,6 +278,8 @@ edit/replace the creds later.
 
 ---
 
+
+
 ## Adding a host page (UI tab)
 
 Three edits, no rebuild of the package:
@@ -277,6 +300,8 @@ export default function Orders ({ runtime, ims }) {
 }
 ```
 
+
+
 ### 2. Register it
 
 ```js
@@ -291,6 +316,8 @@ const pages = {
 
 export default pages
 ```
+
+
 
 ### 3. Add a nav entry
 
@@ -325,6 +352,8 @@ The host always wins on id collision.
 
 ---
 
+
+
 ## Adding a host action (backend)
 
 Adobe App Builder merges `application.runtimeManifest` from `app.config.yaml`
@@ -357,6 +386,8 @@ async function main (params) {
 
 exports.main = main
 ```
+
+
 
 ### 2. Declare it in `app.config.yaml`
 
@@ -405,7 +436,11 @@ with `err.status` and `err.response`.
 
 ---
 
+
+
 ## Reusable helpers exported by the package
+
+
 
 ### Backend (Node)
 
@@ -457,6 +492,8 @@ const value = await getConfig('campaign_general/url/url', params, { scope: 'stor
 const { getConfig, getClient, encrypt } = require('@adobedjangir/commerce-admin-management')
 ```
 
+
+
 ### Front-end (ESM)
 
 ```js
@@ -494,6 +531,8 @@ import '@adobedjangir/commerce-admin-management/web/styles.css'
 
 ---
 
+
+
 ## Configuration override matrix
 
 
@@ -510,7 +549,11 @@ import '@adobedjangir/commerce-admin-management/web/styles.css'
 
 ---
 
+
+
 ## Common operations
+
+
 
 ### Rotate `SYSTEM_CONFIG_CRYPT_KEY`
 
@@ -536,6 +579,8 @@ ciphertext with the old key before re-encrypting with the new one.
   the Adobe Developer Console.
 4. `aio app deploy`.
 
+
+
 ### Promote a deploy
 
 ```bash
@@ -553,6 +598,8 @@ Targets the named workspace's database/region/region-bound creds.
 3. `node packages/commerce-admin-management/scripts/build-web.js`
 4. Reference it in `nav.json` as `"icon": "<NewIconName>"`
 
+
+
 ### Re-link a local package during development
 
 If you're hacking on the package and need the host to pick up changes:
@@ -567,6 +614,8 @@ aio app run
 ```
 
 ---
+
+
 
 ## Troubleshooting
 
@@ -584,6 +633,8 @@ aio app run
 
 
 ---
+
+
 
 ## File reference
 
@@ -645,6 +696,8 @@ packages/commerce-admin-management/
 ```
 
 ---
+
+
 
 ## License
 
