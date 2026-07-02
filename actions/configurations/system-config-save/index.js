@@ -24,6 +24,9 @@ const COLLECTION = 'system_config_data'
 const SCHEMA_COLLECTION = 'system_config_schema'
 const SCHEMA_DOC_ID = 'v1'
 
+// Per-cold-start guard so we createIndex at most once per container.
+let pathIndexEnsured = false
+
 // Soft-dependency hooks. When the add-on packages are installed, these
 // resolve to the real implementation; when they're not, every call
 // silently no-ops. Each add-on's hook is a small, well-defined surface:
@@ -142,6 +145,14 @@ async function main (params) {
   try {
     await ensureCollection(client, COLLECTION)
     const collection = await client.collection(COLLECTION)
+
+    // Ensure the { path } index used by the schema cascade-delete
+    // (system-config-schema does find({ path }) to remove orphaned values).
+    // The hot read path (system-config-list) queries by _id, which is already
+    // auto-indexed. Idempotent + guarded to run at most once per cold start.
+    if (!pathIndexEnsured) {
+      try { await collection.createIndex({ path: 1 }); pathIndexEnsured = true } catch (_) { /* best-effort */ }
+    }
 
     // ── Schema validation gate ──
     // Bad values are rejected wholesale: either the whole payload is valid
