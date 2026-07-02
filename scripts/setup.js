@@ -781,7 +781,14 @@ function ensureEnvDefaults (projectRoot) {
     { key: 'AIO_DB_REGION',           value: 'emea',
       comment: '# App Builder Database region — one of: amer | emea | apac | aus' },
     { key: 'SYSTEM_CONFIG_CRYPT_KEY', value: () => require('crypto').randomBytes(32).toString('base64'),
-      comment: '# AES-256 master key for at-rest encryption.\n# DO NOT rotate — values already in ABDB become undecryptable if you do.\n# Auto-generated on install; back this up like a database password.' }
+      comment: '# AES-256 master key for at-rest encryption.\n# DO NOT rotate — values already in ABDB become undecryptable if you do.\n# Auto-generated on install; back this up like a database password.' },
+    // App titles shown in the Commerce admin — change these per project.
+    { key: 'APP_TITLE',               value: 'Configuration Management',
+      comment: '# Title shown as the Commerce admin menu item (rename per project).' },
+    { key: 'APP_SECTION_TITLE',       value: 'Apps',
+      comment: '# Parent section label the menu item sits under.' },
+    { key: 'APP_PAGE_TITLE',          value: 'Configuration Management - Adobe Commerce → Third-party APIs',
+      comment: '# In-app page/tab title (defaults to APP_TITLE if left blank).' }
   ]
 
   // Build additions for keys that are missing OR empty.

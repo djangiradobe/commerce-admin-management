@@ -23,6 +23,9 @@ runtimeManifest:
           runtime: 'nodejs:20'
           inputs:
             LOG_LEVEL: debug
+            APP_TITLE: $APP_TITLE
+            APP_SECTION_TITLE: $APP_SECTION_TITLE
+            APP_PAGE_TITLE: $APP_PAGE_TITLE
           annotations:
             require-adobe-auth: true
             final: true
