@@ -3862,6 +3862,8 @@ import User from "@spectrum-icons/workflow/User";
 import ShoppingCart from "@spectrum-icons/workflow/ShoppingCart";
 import Box from "@spectrum-icons/workflow/Box";
 import Folder from "@spectrum-icons/workflow/Folder";
+import LockClosed2 from "@spectrum-icons/workflow/LockClosed";
+import UsersLock from "@spectrum-icons/workflow/UsersLock";
 var NAV_ICONS = {
   Settings: Settings2,
   Properties,
@@ -3869,7 +3871,9 @@ var NAV_ICONS = {
   User,
   ShoppingCart,
   Box,
-  Folder
+  Folder,
+  LockClosed: LockClosed2,
+  UsersLock
 };
 function getNavIcon(name) {
   return NAV_ICONS[name] || Settings2;

@@ -14,6 +14,8 @@ import User from '@spectrum-icons/workflow/User'
 import ShoppingCart from '@spectrum-icons/workflow/ShoppingCart'
 import Box from '@spectrum-icons/workflow/Box'
 import Folder from '@spectrum-icons/workflow/Folder'
+import LockClosed from '@spectrum-icons/workflow/LockClosed'
+import UsersLock from '@spectrum-icons/workflow/UsersLock'
 
 export const NAV_ICONS = {
   Settings,
@@ -22,7 +24,9 @@ export const NAV_ICONS = {
   User,
   ShoppingCart,
   Box,
-  Folder
+  Folder,
+  LockClosed,
+  UsersLock
 }
 
 export function getNavIcon (name) {
