@@ -24,6 +24,8 @@ and an extension point for host apps to add their own pages and actions.
 13. [Configuration override matrix](#configuration-override-matrix)
 14. [Common operations](#common-operations)
 15. [Troubleshooting](#troubleshooting)
+16. [Optional add-ons](#optional-add-ons)
+17. [Commerce connection types](#commerce-connection-types)
 
 ---
 
@@ -697,7 +699,48 @@ packages/commerce-admin-management/
 
 ---
 
+## Optional add-ons
 
+The core package is a platform. Install any of these to layer on features — each
+auto-registers its nav tabs, pages, and actions on `npm install` (via the
+discovery mechanism), then activates on `aio app deploy`:
+
+| Package | Adds |
+|---|---|
+| [`@adobedjangir/commerce-admin-audit-log`](https://www.npmjs.com/package/@adobedjangir/commerce-admin-audit-log) | Records every config change (old→new/actor) + an **Audit Log** tab with filter & revert |
+| [`@adobedjangir/commerce-admin-snapshots`](https://www.npmjs.com/package/@adobedjangir/commerce-admin-snapshots) | Point-in-time **Snapshots** of schema + values, with safe wholesale restore |
+| [`@adobedjangir/commerce-admin-ims-access`](https://www.npmjs.com/package/@adobedjangir/commerce-admin-ims-access) | **Email-based RBAC** (admin/editor/viewer): Access Management UI, My Access page, nav badge, and server-side enforcement across the suite |
+
+```bash
+npm install @adobedjangir/commerce-admin-audit-log \
+            @adobedjangir/commerce-admin-snapshots \
+            @adobedjangir/commerce-admin-ims-access
+aio app deploy   # required — bundles each add-on's server hooks into the core actions
+```
+
+**RBAC note:** without `commerce-admin-ims-access`, the app is open (every caller
+is effectively admin). Installing it turns on roles — set the bootstrap
+super-admin(s) in `.env`:
+
+```dotenv
+SUPER_ADMIN_EMAILS=you@company.com
+```
+
+Roles: `viewer` (read-only) · `editor` (save config values) · `admin` (schema,
+audit revert, snapshots, access management). Enforcement is server-side (in the
+actions) **and** in the UI.
+
+## Commerce connection types
+
+The first-run wizard supports both:
+
+- **PaaS / on-prem Adobe Commerce (Magento)** — OAuth1a (consumer key/secret +
+  access token/secret), signed per request.
+- **SaaS / Adobe Commerce as a Cloud Service (ACCS)** — IMS server-to-server
+  bearer (`commerce.accs` scope) minted per request from the workspace
+  `OAUTH_*` credentials, sent with `x-api-key` + `x-gw-ims-org-id`. REST calls
+  hit `<api-host>/<tenant>/V1/…` (no `rest/<store>/` prefix). The ACCS API
+  consumer's role must grant the resources you use.
 
 ## License
 
