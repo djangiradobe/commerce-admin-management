@@ -25,7 +25,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 // Response: { ok, dump }, where `dump` is the JSON the caller saves as a file.
 
 const { Core } = require('@adobe/aio-sdk')
-const { errorResponse } = require('../../utils')
+const { errorResponse, requireRole } = require('../../utils')
 const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
 const { isEncrypted, decrypt } = require('@adobedjangir/commerce-admin-management/crypto')
 const { readCommerceCreds, toClientShape } = require('../../commerce-creds')
@@ -120,6 +120,12 @@ async function tryFindOne (collection, query) {
 
 async function main (params) {
   const logger = Core.Logger('export-config', { level: params.LOG_LEVEL || 'info' })
+
+  // SECURITY: export decrypts and returns plaintext config (incl. secrets).
+  // Admin-only, and fail-CLOSED — if we can't verify the role, deny (never
+  // hand out credentials on a resolution hiccup).
+  const gate = await requireRole(params, 'admin', { failClosed: true })
+  if (gate) return gate
 
   const schemaOnly = params.schemaOnly === true || params.schemaOnly === 'true'
   const valuesOnly = params.valuesOnly === true || params.valuesOnly === 'true'
@@ -244,6 +250,31 @@ async function main (params) {
     }
 
     logger.info(`Exported: ${dump.counts.sections} section(s), ${dump.counts.values} value(s)`)
+
+    // App Builder actions can only return a ~1MB response payload. A large
+    // config (many scopes/values) can exceed that, so when the serialized dump
+    // is big we persist it via the Files SDK and return a short-lived download
+    // URL instead of the inline body (per the App Builder optimization guide).
+    const serialized = JSON.stringify(dump)
+    const MAX_INLINE_BYTES = 900 * 1024 // safety margin under the 1MB limit
+    if (Buffer.byteLength(serialized, 'utf8') > MAX_INLINE_BYTES) {
+      try {
+        const filesLib = require('@adobe/aio-lib-files')
+        const files = await filesLib.init()
+        const filePath = `exports/system-config-export-${Date.now()}.json`
+        await files.write(filePath, serialized)
+        const downloadUrl = await files.generatePresignURL(filePath, { expiryInSeconds: 600, permissions: 'r' })
+        logger.info(`Export exceeded inline limit — returning download URL for ${filePath}`)
+        return {
+          statusCode: 200,
+          body: { ok: true, tooLarge: true, downloadUrl, counts: dump.counts, bytes: Buffer.byteLength(serialized, 'utf8') }
+        }
+      } catch (e) {
+        logger.error(`Files fallback failed: ${e.message}`)
+        return errorResponse(500, `Export too large for an inline response and the file fallback failed: ${e.message}`, logger)
+      }
+    }
+
     return { statusCode: 200, body: { ok: true, dump } }
   } catch (error) {
     logger.error(error)

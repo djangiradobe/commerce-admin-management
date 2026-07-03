@@ -32,7 +32,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 // skipped unless `allowUnmapped: true` is passed.
 
 const { Core } = require('@adobe/aio-sdk')
-const { errorResponse } = require('../../utils')
+const { errorResponse, requireRole } = require('../../utils')
 const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
 const { isValidPath, toStateKey, normalizeScope, normalizeScopeId } = require('@adobedjangir/commerce-admin-management/shared')
 const { getCommerceOauthClient } = require('@adobedjangir/commerce-admin-management/oauth1a')
@@ -241,6 +241,10 @@ async function upsertOne (collection, doc, { overwrite }) {
 
 async function main (params) {
   const logger = Core.Logger('import-config', { level: params.LOG_LEVEL || 'info' })
+
+  // SECURITY: mass-write path — same gate as system-config-save (editor+).
+  const gate = await requireRole(params, 'editor')
+  if (gate) return gate
 
   // Accept `dump: {schema, values, storeMappings, …}` AND/OR top-level
   // schema/values. The client uses the side-channel `dump.storeMappings` to

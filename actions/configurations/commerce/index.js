@@ -6,7 +6,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 */
 
 const { Core } = require('@adobe/aio-sdk')
-const { errorResponse, checkMissingRequestInputs } = require('../../utils')
+const { errorResponse, checkMissingRequestInputs, requireValidToken } = require('../../utils')
 const { getStoredCommerceOauthClient } = require('../../commerce-creds')
 
 async function main (params) {
@@ -19,6 +19,13 @@ async function main (params) {
     if (errorMessage) {
       return errorResponse(400, errorMessage, logger)
     }
+
+    // SECURITY: this proxies arbitrary Commerce REST calls using SERVER-HELD
+    // credentials. "Authorization header present" is not enough — validate the
+    // token against IMS so an arbitrary/invalid Authorization value can't use
+    // our credentials. (No-op when the RBAC add-on isn't installed.)
+    const authGate = await requireValidToken(params)
+    if (authGate) return authGate
 
     let oauth
     try {

@@ -26,7 +26,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 // parsed object back unchanged.
 
 const { Core } = require('@adobe/aio-sdk')
-const { errorResponse } = require('../../utils')
+const { errorResponse, requireRole } = require('../../utils')
 const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
 const { toStateKey } = require('@adobedjangir/commerce-admin-management/shared')
 const { getStoredCommerceOauthClient } = require('../../commerce-creds')
@@ -103,6 +103,10 @@ function buildStoreMappings (storeViews, websites, { includeAdmin }) {
 
 async function main (params) {
   const logger = Core.Logger('sync-store-mappings', { level: params.LOG_LEVEL || 'info' })
+  // Writes store-mapping config → editor+ (a dryRun still reads Commerce with
+  // server creds, so gate it too).
+  const gate = await requireRole(params, 'editor')
+  if (gate) return gate
   const dryRun = params.dryRun === true || params.dryRun === 'true'
   const includeAdmin = params.includeAdmin === true || params.includeAdmin === 'true'
 

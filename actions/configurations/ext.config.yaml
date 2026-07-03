@@ -21,6 +21,9 @@ runtimeManifest:
           function: registration/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             APP_TITLE: $APP_TITLE
@@ -38,6 +41,9 @@ runtimeManifest:
           function: commerce/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
@@ -59,6 +65,9 @@ runtimeManifest:
           function: system-config-list/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
@@ -80,6 +89,9 @@ runtimeManifest:
           function: system-config-save/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
@@ -104,6 +116,9 @@ runtimeManifest:
           function: system-config-schema/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             OAUTH_CLIENT_ID: $OAUTH_CLIENT_ID
@@ -124,6 +139,14 @@ runtimeManifest:
           function: export-config/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          # Heavier action: aggregates the whole schema + all values, serialises,
+          # and (for large configs) uploads via the Files SDK. More memory + a
+          # longer timeout; lower intra-container concurrency so many parallel
+          # exports can't exhaust container memory (per throughput-tuning guide).
+          limits:
+            timeout: 120000
+            memory: 512
+            concurrency: 20
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
@@ -148,6 +171,9 @@ runtimeManifest:
           limits:
             timeout: 300000
             memory: 512
+            # 512MB action → cap intra-container concurrency so N parallel
+            # imports can't exceed the container memory limit.
+            concurrency: 15
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
@@ -169,6 +195,9 @@ runtimeManifest:
           function: sync-store-mappings-from-commerce/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
@@ -190,6 +219,9 @@ runtimeManifest:
           function: commerce-connection-status/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
@@ -211,6 +243,9 @@ runtimeManifest:
           function: commerce-connection-test/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
@@ -232,6 +267,9 @@ runtimeManifest:
           function: commerce-connection-save/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY
@@ -253,6 +291,9 @@ runtimeManifest:
           function: system-config-bulk-save/index.js
           web: 'yes'
           runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
           inputs:
             LOG_LEVEL: debug
             SYSTEM_CONFIG_CRYPT_KEY: $SYSTEM_CONFIG_CRYPT_KEY

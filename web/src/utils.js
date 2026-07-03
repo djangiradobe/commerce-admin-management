@@ -72,3 +72,39 @@ export async function callAction (props, action, operation, body = {}) {
   }
   return parsed
 }
+
+/**
+ * GET variant for cacheable, read-only actions. A GET lets the I/O gateway /
+ * CDN honor the action's `Cache-Control` header (POST responses aren't cached),
+ * so repeat reads of stable data (e.g. the schema) can skip re-invoking the
+ * action entirely. Query params are appended to the URL; OpenWhisk merges them
+ * into the action's `params`. Use only for idempotent reads.
+ */
+export async function callActionGet (props, action, query = {}) {
+  const base = getActionUrl(action)
+  if (!base) {
+    throw new Error(`Action ${action} is not configured. Call configureWeb({ actionUrls }) with deploy-time URLs.`)
+  }
+  const qs = new URLSearchParams(query).toString()
+  const url = qs ? `${base}?${qs}` : base
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'x-gw-ims-org-id': (props.ims && props.ims.org) || '',
+      authorization: `Bearer ${(props.ims && props.ims.token) || ''}`
+    }
+  })
+  const text = await res.text()
+  let parsed
+  try { parsed = JSON.parse(text) } catch (e) {
+    throw new Error(`Invalid response from ${action}: ${text.slice(0, 200)}`)
+  }
+  if (!res.ok) {
+    const msg = parsed?.error || parsed?.body?.error || parsed?.message || `Action ${action} failed with HTTP ${res.status}`
+    const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+    err.status = res.status
+    err.response = parsed
+    throw err
+  }
+  return parsed
+}

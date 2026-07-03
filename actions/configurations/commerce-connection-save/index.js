@@ -4,7 +4,7 @@ Licensed under the Apache License, Version 2.0
 */
 
 const { Core } = require('@adobe/aio-sdk')
-const { errorResponse, checkMissingRequestInputs } = require('../../utils')
+const { errorResponse, checkMissingRequestInputs, requireRole } = require('../../utils')
 const {
   testCommerceConnection,
   writeCommerceCreds,
@@ -43,6 +43,10 @@ function buildCredsFromParams (params) {
 
 async function main (params) {
   const logger = Core.Logger('commerce-connection-save', { level: params.LOG_LEVEL || 'info' })
+  // SECURITY: this sets which Commerce instance + credentials the WHOLE app
+  // talks to. Admin-only, fail-closed.
+  const gate = await requireRole(params, 'admin', { failClosed: true })
+  if (gate) return gate
   try {
     // SaaS only needs baseUrl — apiKey is optional, bearer is minted at
     // runtime from workspace OAUTH_* env vars.

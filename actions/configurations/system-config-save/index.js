@@ -180,12 +180,13 @@ async function main (params) {
       if (schema) {
         const fieldByPath = indexSchemaByPath(schema)
         const fieldErrors = {}
-        // Caller-supplied role (resolved by the UI via ims-user-profile).
-        // RBAC enforcement is delegated to the ims-access add-on's hook —
-        // when the add-on isn't installed, requiredRole tags become advisory
-        // (UI still hides + disables, but the server can't independently
-        // verify, so it doesn't block).
-        const callerRole = typeof params.role === 'string' ? params.role : null
+        // Resolve the caller's role SERVER-SIDE (never trust client-supplied
+        // params.role — an editor could otherwise send role:'admin' to write
+        // admin-only fields). Falls back to params.role only when the RBAC
+        // add-on isn't installed, where requiredRole tags are advisory anyway.
+        const callerRole = (rbacHook && rbacHook.resolveCallerRole)
+          ? await rbacHook.resolveCallerRole(params)
+          : (typeof params.role === 'string' ? params.role : null)
         for (const [path, value] of Object.entries(values)) {
           // Skip sentinels — they're not user data.
           if (value === USE_DEFAULT_SENTINEL) continue
@@ -218,10 +219,14 @@ async function main (params) {
     const skipped = []
     const auditEntries = []
 
-    for (const [path, value] of Object.entries(values)) {
+    // Process every path CONCURRENTLY. Each targets a distinct _id, so the
+    // reads/writes are independent — running them in parallel turns N serial
+    // DB round-trips into ~1 round-trip's worth of latency. The result arrays
+    // (push is synchronous) don't depend on ordering.
+    await Promise.all(Object.entries(values).map(async ([path, value]) => {
       if (!isValidPath(path)) {
         skipped.push({ path, reason: 'invalid path format' })
-        continue
+        return
       }
       const id = toStateKey(scope, scopeId, path)
       const existing = await tryFindOne(collection, { _id: id })
@@ -232,21 +237,16 @@ async function main (params) {
         deleted.push(path)
         if (existing) {
           auditEntries.push({
-            scope,
-            scope_id: scopeId,
-            path,
-            action: 'delete',
+            scope, scope_id: scopeId, path, action: 'delete',
             oldValue: summarizeForAudit(path, existing.value, sensitive),
-            newValue: null,
-            changedBy: actor,
-            changedAt: now
+            newValue: null, changedBy: actor, changedAt: now
           })
         }
-        continue
+        return
       }
       if (sensitive && value === SENSITIVE_PLACEHOLDER) {
         skipped.push({ path, reason: 'masked placeholder, kept existing' })
-        continue
+        return
       }
 
       let stored = value
@@ -256,44 +256,26 @@ async function main (params) {
 
       if (existing) {
         if (existing.value !== stored) {
-          await collection.updateOne(
-            { _id: id },
-            { $set: { value: stored, updatedAt: now } }
-          )
+          await collection.updateOne({ _id: id }, { $set: { value: stored, updatedAt: now } })
           auditEntries.push({
-            scope,
-            scope_id: scopeId,
-            path,
-            action: 'update',
+            scope, scope_id: scopeId, path, action: 'update',
             oldValue: summarizeForAudit(path, existing.value, sensitive),
             newValue: summarizeForAudit(path, value, sensitive),
-            changedBy: actor,
-            changedAt: now
+            changedBy: actor, changedAt: now
           })
         }
       } else {
         await collection.insertOne({
-          _id: id,
-          scope,
-          scope_id: scopeId,
-          path,
-          value: stored,
-          createdAt: now,
-          updatedAt: now
+          _id: id, scope, scope_id: scopeId, path, value: stored, createdAt: now, updatedAt: now
         })
         auditEntries.push({
-          scope,
-          scope_id: scopeId,
-          path,
-          action: 'create',
-          oldValue: null,
-          newValue: summarizeForAudit(path, value, sensitive),
-          changedBy: actor,
-          changedAt: now
+          scope, scope_id: scopeId, path, action: 'create',
+          oldValue: null, newValue: summarizeForAudit(path, value, sensitive),
+          changedBy: actor, changedAt: now
         })
       }
       saved.push(path)
-    }
+    }))
 
     // Audit write — delegated to the audit-log add-on if installed.
     // Failure to log must never fail the save (the add-on's hook is also

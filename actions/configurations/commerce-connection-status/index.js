@@ -4,11 +4,13 @@ Licensed under the Apache License, Version 2.0
 */
 
 const { Core } = require('@adobe/aio-sdk')
-const { errorResponse } = require('../../utils')
+const { errorResponse, requireRole } = require('../../utils')
 const { probeCommerceCreds } = require('../../commerce-creds')
 
 async function main (params) {
   const logger = Core.Logger('commerce-connection-status', { level: params.LOG_LEVEL || 'info' })
+  const gate = await requireRole(params, 'viewer')
+  if (gate) return gate
   try {
     const probe = await probeCommerceCreds(params)
     if (probe.decryptFailed) {

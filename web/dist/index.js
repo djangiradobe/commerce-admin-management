@@ -119,6 +119,37 @@ async function callAction(props, action, operation, body = {}) {
   }
   return parsed;
 }
+async function callActionGet(props, action, query = {}) {
+  var _a;
+  const base = getActionUrl(action);
+  if (!base) {
+    throw new Error(`Action ${action} is not configured. Call configureWeb({ actionUrls }) with deploy-time URLs.`);
+  }
+  const qs = new URLSearchParams(query).toString();
+  const url = qs ? `${base}?${qs}` : base;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "x-gw-ims-org-id": props.ims && props.ims.org || "",
+      authorization: `Bearer ${props.ims && props.ims.token || ""}`
+    }
+  });
+  const text = await res.text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`Invalid response from ${action}: ${text.slice(0, 200)}`);
+  }
+  if (!res.ok) {
+    const msg = (parsed == null ? void 0 : parsed.error) || ((_a = parsed == null ? void 0 : parsed.body) == null ? void 0 : _a.error) || (parsed == null ? void 0 : parsed.message) || `Action ${action} failed with HTTP ${res.status}`;
+    const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    err.status = res.status;
+    err.response = parsed;
+    throw err;
+  }
+  return parsed;
+}
 
 // web/src/schema/systemConfigSchema.js
 var FIELD_TYPES = ["text", "textarea", "password", "number", "select", "boolean"];
@@ -584,11 +615,12 @@ function useSystemConfigSchema(props) {
     setLoading(true);
     setError(null);
     try {
-      const response = await callAction(
-        props,
-        getActionKey("systemConfigSchema"),
-        "get"
-      );
+      let response;
+      try {
+        response = await callActionGet(props, getActionKey("systemConfigSchema"), { operation: "get" });
+      } catch (_) {
+        response = await callAction(props, getActionKey("systemConfigSchema"), "get");
+      }
       const fetched = (response == null ? void 0 : response.schema) || ((_a = response == null ? void 0 : response.body) == null ? void 0 : _a.schema) || emptySchema();
       setSchema(fetched);
     } catch (e) {
@@ -3419,7 +3451,7 @@ function SystemConfig(props) {
     setMode("values");
   };
   const onExport = async () => {
-    var _a, _b, _c;
+    var _a, _b;
     setExporting(true);
     setIoMsg(null);
     setIoProgress({ phase: "running", done: 0, total: 0, label: "Collecting schema + values from ABDB\u2026" });
@@ -3430,7 +3462,14 @@ function SystemConfig(props) {
         "",
         {}
       );
-      const dump = (response == null ? void 0 : response.dump) || ((_a = response == null ? void 0 : response.body) == null ? void 0 : _a.dump);
+      const body = (response == null ? void 0 : response.body) || response;
+      let dump = body == null ? void 0 : body.dump;
+      if (!dump && (body == null ? void 0 : body.downloadUrl)) {
+        setIoProgress((p) => ({ ...p, label: "Downloading large export\u2026" }));
+        const dl = await fetch(body.downloadUrl);
+        if (!dl.ok) throw new Error(`Could not fetch export file (HTTP ${dl.status})`);
+        dump = await dl.json();
+      }
       if (!dump) throw new Error("Export response missing `dump`");
       setIoProgress((p) => ({ ...p, label: "Building file\u2026" }));
       const blob = new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" });
@@ -3445,7 +3484,7 @@ function SystemConfig(props) {
       URL.revokeObjectURL(url);
       const c = dump.counts || {};
       setIoProgress({ phase: "done", done: c.values || 0, total: c.values || 0, label: "Export complete" });
-      setIoMsg(`\u2713 Exported ${(_b = c.sections) != null ? _b : "?"} section(s) and ${(_c = c.values) != null ? _c : "?"} value(s) \u2192 ${filename}`);
+      setIoMsg(`\u2713 Exported ${(_a = c.sections) != null ? _a : "?"} section(s) and ${(_b = c.values) != null ? _b : "?"} value(s) \u2192 ${filename}`);
     } catch (e) {
       console.error("Export failed", e);
       setIoProgress({ phase: "error", done: 0, total: 0, label: "Export failed" });
@@ -4431,6 +4470,7 @@ export {
   THEME,
   buildStoreMappingsFromCommercePayload,
   callAction,
+  callActionGet,
   coerceDefault,
   configureWeb,
   emptySchema,

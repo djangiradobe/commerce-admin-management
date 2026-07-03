@@ -1577,7 +1577,17 @@ export default function SystemConfig (props) {
         '',
         {}
       )
-      const dump = response?.dump || response?.body?.dump
+      const body = response?.body || response
+      let dump = body?.dump
+      // Large exports come back as a short-lived download URL (the action
+      // stored the file via the Files SDK to stay under the 1MB response
+      // limit) — fetch it to get the dump JSON.
+      if (!dump && body?.downloadUrl) {
+        setIoProgress(p => ({ ...p, label: 'Downloading large export…' }))
+        const dl = await fetch(body.downloadUrl)
+        if (!dl.ok) throw new Error(`Could not fetch export file (HTTP ${dl.status})`)
+        dump = await dl.json()
+      }
       if (!dump) throw new Error('Export response missing `dump`')
 
       setIoProgress(p => ({ ...p, label: 'Building file…' }))

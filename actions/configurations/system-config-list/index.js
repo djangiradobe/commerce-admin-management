@@ -6,7 +6,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 */
 
 const { Core } = require('@adobe/aio-sdk')
-const { errorResponse, checkMissingRequestInputs } = require('../../utils')
+const { errorResponse, checkMissingRequestInputs, requireRole } = require('../../utils')
 const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
 const {
   SENSITIVE_PLACEHOLDER,
@@ -40,6 +40,9 @@ async function ensureCollection (client) {
  */
 async function main (params) {
   const logger = Core.Logger('system-config-list', { level: params.LOG_LEVEL || 'info' })
+
+  const gate = await requireRole(params, 'viewer')
+  if (gate) return gate
 
   const errorMessage = checkMissingRequestInputs(params, ['paths'], [])
   if (errorMessage) return errorResponse(400, errorMessage, logger)

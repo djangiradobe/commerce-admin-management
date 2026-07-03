@@ -206,8 +206,15 @@ async function main (params) {
     if (op === 'get') {
       const doc = await tryFindOne(collection, { _id: DOC_ID })
       const schema = (doc && doc.schema) || emptySchema()
+      // Cache-Control per the App Builder optimization guide — lets the I/O
+      // gateway/CDN serve repeat schema reads without re-invoking the action
+      // (caching bypasses execution, so it doesn't count toward rate/concurrency
+      // limits either). `public` so the authenticated GET is cacheable; the
+      // schema is workspace-scoped (keyed by the namespace URL), not per-user.
+      // Short max-age so a schema edit still propagates within a minute.
       return {
         statusCode: 200,
+        headers: { 'Cache-Control': 'public, max-age=60' },
         body: { message: 'Schema fetched', schema }
       }
     }

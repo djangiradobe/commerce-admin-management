@@ -730,6 +730,38 @@ Roles: `viewer` (read-only) · `editor` (save config values) · `admin` (schema,
 audit revert, snapshots, access management). Enforcement is server-side (in the
 actions) **and** in the UI.
 
+## Action authorization
+
+Every action is gated server-side via the shared `requireRole` / `requireValidToken`
+helpers (`actions/utils.js`). **Enforcement requires the
+[`commerce-admin-ims-access`](https://www.npmjs.com/package/@adobedjangir/commerce-admin-ims-access)
+add-on** — without it there is no role system, so the app runs **open**
+(single-tenant); the gates return "allowed". `require-adobe-auth: false` on an
+action does **not** mean "unprotected" — protection is the role gate below.
+
+| Action | Min role | Notes |
+|---|---|---|
+| `export-config` | **admin** (fail-closed) | decrypts + returns plaintext config incl. secrets |
+| `commerce-connection-save` | **admin** (fail-closed) | sets the Commerce instance + creds for the whole app |
+| `system-config-schema` (save/reset/import) | **admin** | schema edits |
+| `import-config` | editor | mass write |
+| `system-config-save` / `-bulk-save` | editor | per-field `requiredRole` also enforced (server-resolved) |
+| `sync-store-mappings-from-commerce` | editor | writes store mappings |
+| `commerce-connection-test` | editor | probes endpoints with supplied creds |
+| `commerce-rest-get` | **valid IMS token** | proxies Commerce REST with server creds — token validated against IMS |
+| `system-config-list` | viewer | read |
+| `commerce-connection-status` | viewer | read (gates the app UI) |
+| `commerce-rest-get` (read) | valid token | see above |
+
+Add-on actions (when installed): `audit-delete`, snapshot `create`/`restore`/`delete`,
+and `access-save`/`access-delete` are **admin**; `audit-list`, `snapshot-list`,
+`access-list` require the caller be resolvable. **Any new write/export action
+must add a `requireRole`/`requireValidToken` gate.**
+
+Fail-open vs fail-closed: gates fail **open** on a transient role-resolution
+error (availability) except credential export/write (`export-config`,
+`commerce-connection-save`), which fail **closed**.
+
 ## Commerce connection types
 
 The first-run wizard supports both:

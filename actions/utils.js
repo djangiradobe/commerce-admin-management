@@ -66,8 +66,59 @@ function logDetails (logName, message, type = 'info') {
   else logger.info(message)
 }
 
+// ── Shared authorization gate ──────────────────────────────────────────────
+// One consistent entry point every action uses, so the RBAC pattern can't
+// drift per-action. Soft-depends on the ims-access hook (literal require so
+// esbuild bundles it; see system-config-save for the rationale). When the
+// RBAC add-on isn't installed there's no role system → the app is open
+// (single-tenant), so these return "allowed".
+let _rbacHook = null
+try { _rbacHook = require('@adobedjangir/commerce-admin-ims-access/hook') } catch (_) { _rbacHook = null }
+
+/**
+ * Require a minimum role. Returns an error RESPONSE ({statusCode:403,...}) to
+ * return directly, or null when allowed.
+ * @param {object} opts { failClosed } — deny on resolution error (use for
+ *        credential export/write actions).
+ */
+async function requireRole (params, minRole, opts = {}) {
+  if (!_rbacHook || !_rbacHook.assertMinRole) return null // no RBAC add-on → open
+  try {
+    const err = await _rbacHook.assertMinRole(params, minRole, opts)
+    return err ? { statusCode: 403, body: { error: err } } : null
+  } catch (e) {
+    return opts.failClosed
+      ? { statusCode: 403, body: { error: 'Access check failed — denying (fail-closed).' } }
+      : null
+  }
+}
+
+/**
+ * Require a VALID Adobe IMS token (authentication, independent of role).
+ * Returns an error RESPONSE or null. Use for actions that proxy privileged
+ * server-held credentials and must never run unauthenticated.
+ */
+async function requireValidToken (params) {
+  if (!_rbacHook || !_rbacHook.assertValidCaller) return null // no RBAC add-on → open
+  try {
+    const err = await _rbacHook.assertValidCaller(params)
+    return err ? { statusCode: 401, body: { error: err } } : null
+  } catch (_) {
+    return { statusCode: 401, body: { error: 'Could not validate token.' } }
+  }
+}
+
+/** Resolve the caller's role server-side ('admin'|'editor'|'viewer'|null). */
+async function resolveCallerRole (params) {
+  if (!_rbacHook || !_rbacHook.resolveCallerRole) return null
+  try { return await _rbacHook.resolveCallerRole(params) } catch (_) { return null }
+}
+
 module.exports = {
   errorResponse,
   checkMissingRequestInputs,
-  logDetails
+  logDetails,
+  requireRole,
+  requireValidToken,
+  resolveCallerRole
 }

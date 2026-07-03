@@ -6,7 +6,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 */
 
 import { useCallback, useEffect, useState } from 'react'
-import { callAction } from '../utils'
+import { callAction, callActionGet } from '../utils'
 import { getActionKey } from '../settings'
 import { emptySchema } from '../schema/systemConfigSchema'
 
@@ -20,11 +20,15 @@ export function useSystemConfigSchema (props) {
     setLoading(true)
     setError(null)
     try {
-      const response = await callAction(
-        props,
-        getActionKey('systemConfigSchema'),
-        'get'
-      )
+      // GET (not POST) so the action's Cache-Control is honored by the gateway
+      // — repeat schema loads across the app can be served from cache. Falls
+      // back to POST if a GET path ever isn't available.
+      let response
+      try {
+        response = await callActionGet(props, getActionKey('systemConfigSchema'), { operation: 'get' })
+      } catch (_) {
+        response = await callAction(props, getActionKey('systemConfigSchema'), 'get')
+      }
       const fetched = response?.schema || response?.body?.schema || emptySchema()
       setSchema(fetched)
     } catch (e) {

@@ -4,7 +4,7 @@ Licensed under the Apache License, Version 2.0
 */
 
 const { Core } = require('@adobe/aio-sdk')
-const { errorResponse, checkMissingRequestInputs } = require('../../utils')
+const { errorResponse, checkMissingRequestInputs, requireRole } = require('../../utils')
 const {
   testCommerceConnection,
   readCommerceCreds,
@@ -37,6 +37,10 @@ function buildCredsFromParams (params) {
 
 async function main (params) {
   const logger = Core.Logger('commerce-connection-test', { level: params.LOG_LEVEL || 'info' })
+  // Editor+ — this probes endpoints with (possibly form-supplied) credentials
+  // and is part of the connection setup flow.
+  const gate = await requireRole(params, 'editor')
+  if (gate) return gate
   try {
     // Test either form-supplied values or fall back to the currently-saved creds.
     const anyFormValue = params.baseUrl || params.consumerKey || params.apiKey ||
