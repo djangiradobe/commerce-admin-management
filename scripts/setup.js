@@ -946,10 +946,11 @@ function setEnvVar (projectRoot, key, value) {
   return true
 }
 
-// Resolve the target platform, in priority order: CLI flag (--saas/--paas/
-// --platform=…) → COMMERCE_PLATFORM env → existing .env value → null (caller
-// decides whether to prompt / default).
-function resolvePlatformChoice (projectRoot) {
+// An EXPLICIT platform choice from a CLI flag (--saas/--paas/--platform=…) or
+// the COMMERCE_PLATFORM process env. These bypass the interactive prompt. A
+// value persisted in .env is NOT explicit — it's only the prompt's default, so
+// re-running the CLI still asks. Returns 'saas'|'paas'|other-string or null.
+function explicitPlatformChoice () {
   for (const a of process.argv.slice(2)) {
     const m = /^--platform(?:=(.+))?$/.exec(a)
     if (m && m[1]) return m[1].toLowerCase()
@@ -957,20 +958,31 @@ function resolvePlatformChoice (projectRoot) {
     if (a === '--paas') return 'paas'
   }
   if (process.env.COMMERCE_PLATFORM) return String(process.env.COMMERCE_PLATFORM).toLowerCase()
+  return null
+}
+
+// Back-compat resolver: explicit choice, else the persisted .env value, else
+// null. Used as the non-interactive fallback.
+function resolvePlatformChoice (projectRoot) {
+  const explicit = explicitPlatformChoice()
+  if (explicit) return explicit
   const fromEnv = readEnvValue(projectRoot, 'COMMERCE_PLATFORM')
   return fromEnv ? String(fromEnv).toLowerCase() : null
 }
 
-// Interactive paas/saas prompt (only on a real TTY). Resolves to 'paas'|'saas'.
-function promptPlatform () {
+// Interactive paas/saas prompt (only on a real TTY). `def` is the pre-selected
+// answer (Enter accepts it). Resolves to 'paas'|'saas'.
+function promptPlatform (def) {
+  const fallback = (def === 'saas') ? 'saas' : 'paas'
   return new Promise((resolve) => {
-    if (!process.stdin.isTTY) return resolve('paas')
+    if (!process.stdin.isTTY) return resolve(fallback)
     const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout })
     const ask = () => rl.question(
-      'Which Adobe Commerce platform is this app for? [paas/saas] (default: paas): ',
+      `Which Adobe Commerce platform is this app for? [paas/saas] (default: ${fallback}): `,
       (ans) => {
         const v = String(ans || '').trim().toLowerCase()
-        if (v === '' || v === 'paas' || v === 'p') { rl.close(); return resolve('paas') }
+        if (v === '') { rl.close(); return resolve(fallback) }
+        if (v === 'paas' || v === 'p') { rl.close(); return resolve('paas') }
         if (v === 'saas' || v === 's') { rl.close(); return resolve('saas') }
         console.log('  Please type "paas" or "saas".')
         ask()
@@ -1302,10 +1314,19 @@ async function runCli () {
   const interactive = !isPostinstall
   const projectRoot = resolveProjectRoot()
 
-  // Platform precedence: CLI flag / env / existing .env → else prompt (CLI) →
-  // else 'paas'. Postinstall never prompts.
-  let platform = resolvePlatformChoice(projectRoot || process.cwd())
-  if (!platform && interactive) platform = await promptPlatform()
+  // Platform selection:
+  //   • An EXPLICIT flag/env (--saas/--paas/--platform=…/COMMERCE_PLATFORM) wins
+  //     outright — no prompt.
+  //   • Otherwise an interactive CLI run ALWAYS prompts, defaulting to whatever
+  //     is already persisted in .env (or paas). A previously-persisted value is
+  //     just the default, not a reason to skip the question.
+  //   • A non-interactive run (postinstall) uses the persisted value or paas.
+  let platform = explicitPlatformChoice()
+  if (!platform) {
+    const persisted = (projectRoot ? (readEnvValue(projectRoot, 'COMMERCE_PLATFORM') || '') : '').toLowerCase()
+    const def = (persisted === 'saas' || persisted === 'paas') ? persisted : 'paas'
+    platform = interactive ? await promptPlatform(def) : def
+  }
 
   // Standard scaffold (idempotent; seeds .env incl. COMMERCE_PLATFORM=paas).
   main()
@@ -1339,7 +1360,9 @@ module.exports = {
   saasGuidance,
   readEnvValue,
   setEnvVar,
+  explicitPlatformChoice,
   resolvePlatformChoice,
+  promptPlatform,
   writeCommerceAppConfig,
   commerceAppConfigContents,
   wireSaasAppConfig,
