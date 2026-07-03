@@ -26,6 +26,7 @@ and an extension point for host apps to add their own pages and actions.
 15. [Troubleshooting](#troubleshooting)
 16. [Optional add-ons](#optional-add-ons)
 17. [Commerce connection types](#commerce-connection-types)
+18. [SaaS / App Management](#saas--app-management)
 
 ---
 
@@ -773,6 +774,66 @@ The first-run wizard supports both:
   `OAUTH_*` credentials, sent with `x-api-key` + `x-gw-ims-org-id`. REST calls
   hit `<api-host>/<tenant>/V1/…` (no `rest/<store>/` prefix). The ACCS API
   consumer's role must grant the resources you use.
+
+## SaaS / App Management
+
+Adobe is retiring **Manual Extensions Selection** for SaaS (ACCS) in favor of
+**Commerce App Management**. PaaS is unaffected — nothing to do there. This app
+supports both, selected by one `.env` flag:
+
+```dotenv
+COMMERCE_PLATFORM=paas   # default — classic Manual Extensions Selection
+# COMMERCE_PLATFORM=saas # additionally register with Commerce App Management
+```
+
+The admin UI itself is unchanged on both platforms: it's served by the
+`commerce/backend-ui/1` extension. App Management is **additive** — it layers a
+`commerce/extensibility/1` extension plus an `app.commerce.config.*` metadata
+file alongside our registration, so there's no double-registration to guard
+against and no PaaS behavior to revert.
+
+**Enabling SaaS — one command:**
+
+Run the setup CLI and answer **saas** when prompted:
+
+```bash
+npx @adobedjangir/commerce-admin-management-setup
+# Which Adobe Commerce platform is this app for? [paas/saas] (default: paas): saas
+```
+
+Or skip the prompt with a flag / env var:
+
+```bash
+npx @adobedjangir/commerce-admin-management-setup --saas
+# or: COMMERCE_PLATFORM=saas npx @adobedjangir/commerce-admin-management-setup
+```
+
+For **saas** this does everything for you:
+
+1. Writes `COMMERCE_PLATFORM=saas` to `.env`.
+2. Seeds `app.commerce.config.ts` with metadata derived from your `APP_TITLE`
+   (so the App Management card matches the admin menu) and **no** custom
+   installation steps.
+3. Runs `npx @adobe/aio-commerce-lib-app init`, which — because a valid config
+   already exists — runs **non-interactively**: it installs the App Management
+   deps (`@adobe/aio-commerce-lib-app`, `@adobe/aio-commerce-sdk`) and wires
+   `install.yaml`, the `commerce/extensibility/1` extension, the generated
+   actions/manifest, and the `postinstall` hook — all version-matched to the
+   installed library.
+
+The **only** thing left for you to run is the deploy:
+
+```bash
+aio app build --force-build && aio app deploy --force-deploy --no-build
+```
+
+The app then appears under **Apps → App Management** in the Commerce admin.
+Requires `admin-ui-sdk` ≥ 3.3.1 on the Commerce instance.
+
+> The full SaaS wiring (including `init`) runs **only** for an explicit
+> `commerce-admin-management-setup` invocation — never silently during a plain
+> `npm install`. A `paas` answer (the default) changes nothing beyond recording
+> `COMMERCE_PLATFORM=paas`.
 
 ## License
 

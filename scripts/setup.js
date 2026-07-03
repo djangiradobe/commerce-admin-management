@@ -780,6 +780,12 @@ function ensureEnvDefaults (projectRoot) {
   const defaults = [
     { key: 'AIO_DB_REGION',           value: 'emea',
       comment: '# App Builder Database region — one of: amer | emea | apac | aus' },
+    // Which Commerce flavor this app targets. PaaS uses the classic
+    // "Manual Extensions Selection" registration (default, unchanged). SaaS
+    // (ACCS) additionally surfaces the app via Commerce App Management — see
+    // the README "SaaS / App Management" section for the one-time init step.
+    { key: 'COMMERCE_PLATFORM',       value: 'paas',
+      comment: '# Target Commerce platform: paas | saas. saas enables App Management wiring.' },
     { key: 'SYSTEM_CONFIG_CRYPT_KEY', value: () => require('crypto').randomBytes(32).toString('base64'),
       comment: '# AES-256 master key for at-rest encryption.\n# DO NOT rotate — values already in ABDB become undecryptable if you do.\n# Auto-generated on install; back this up like a database password.' },
     // App titles shown in the Commerce admin — change these per project.
@@ -876,6 +882,175 @@ function setupAppConfig (projectRoot) {
   return { changed: true, reason: reasons.join('+'), detail: INCLUDE_REL }
 }
 
+// Read a single .env value (uncommented) without pulling in dotenv.
+function readEnvValue (projectRoot, key) {
+  const envPath = path.join(projectRoot, '.env')
+  if (!fs.existsSync(envPath)) return process.env[key]
+  try {
+    for (const raw of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const line = raw.trim()
+      if (!line || line.startsWith('#')) continue
+      const eq = line.indexOf('=')
+      if (eq === -1) continue
+      if (line.slice(0, eq).trim() === key) return line.slice(eq + 1).trim()
+    }
+  } catch (_) { /* fall through */ }
+  return process.env[key]
+}
+
+/**
+ * When COMMERCE_PLATFORM=saas, the app should also be discoverable through
+ * Commerce App Management (the SaaS replacement for Manual Extensions
+ * Selection). App Management scaffolding is owned by Adobe's official
+ * generator (`npx @adobe/aio-commerce-lib-app init`), which emits
+ * version-correct artifacts we deliberately do NOT hand-replicate. Here we
+ * only DETECT whether it's already wired and, if not, print the one-time
+ * enablement steps. PaaS (default) is a no-op — nothing changes.
+ */
+function saasGuidance (projectRoot) {
+  const platform = String(readEnvValue(projectRoot, 'COMMERCE_PLATFORM') || 'paas').toLowerCase()
+  if (platform !== 'saas') return { platform, wired: null }
+
+  const hasConfig = ['app.commerce.config.ts', 'app.commerce.config.js', 'app.commerce.config.mjs']
+    .some((f) => fs.existsSync(path.join(projectRoot, f)))
+  let hasExtPoint = false
+  const appCfg = path.join(projectRoot, 'app.config.yaml')
+  if (fs.existsSync(appCfg)) {
+    try { hasExtPoint = /commerce\/extensibility\/1/.test(fs.readFileSync(appCfg, 'utf8')) } catch (_) {}
+  }
+  const wired = hasConfig && hasExtPoint
+  return { platform, wired, hasConfig, hasExtPoint }
+}
+
+// Set (or replace) a single KEY=value in .env. Unlike ensureEnvDefaults this
+// OVERWRITES an existing value — used when the operator explicitly chooses a
+// platform. Appends if absent. Preserves surrounding lines/comments.
+function setEnvVar (projectRoot, key, value) {
+  const envPath = path.join(projectRoot, '.env')
+  let lines = []
+  if (fs.existsSync(envPath)) {
+    try { lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/) } catch (_) { return false }
+  }
+  let found = false
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim()
+    if (!t || t.startsWith('#')) continue
+    const eq = t.indexOf('=')
+    if (eq !== -1 && t.slice(0, eq).trim() === key) { lines[i] = `${key}=${value}`; found = true; break }
+  }
+  if (!found) {
+    if (lines.length && lines[lines.length - 1].trim() !== '') lines.push('')
+    lines.push(`${key}=${value}`)
+  }
+  fs.writeFileSync(envPath, lines.join('\n') + (lines[lines.length - 1] === '' ? '' : '\n'), 'utf8')
+  return true
+}
+
+// Resolve the target platform, in priority order: CLI flag (--saas/--paas/
+// --platform=…) → COMMERCE_PLATFORM env → existing .env value → null (caller
+// decides whether to prompt / default).
+function resolvePlatformChoice (projectRoot) {
+  for (const a of process.argv.slice(2)) {
+    const m = /^--platform(?:=(.+))?$/.exec(a)
+    if (m && m[1]) return m[1].toLowerCase()
+    if (a === '--saas') return 'saas'
+    if (a === '--paas') return 'paas'
+  }
+  if (process.env.COMMERCE_PLATFORM) return String(process.env.COMMERCE_PLATFORM).toLowerCase()
+  const fromEnv = readEnvValue(projectRoot, 'COMMERCE_PLATFORM')
+  return fromEnv ? String(fromEnv).toLowerCase() : null
+}
+
+// Interactive paas/saas prompt (only on a real TTY). Resolves to 'paas'|'saas'.
+function promptPlatform () {
+  return new Promise((resolve) => {
+    if (!process.stdin.isTTY) return resolve('paas')
+    const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout })
+    const ask = () => rl.question(
+      'Which Adobe Commerce platform is this app for? [paas/saas] (default: paas): ',
+      (ans) => {
+        const v = String(ans || '').trim().toLowerCase()
+        if (v === '' || v === 'paas' || v === 'p') { rl.close(); return resolve('paas') }
+        if (v === 'saas' || v === 's') { rl.close(); return resolve('saas') }
+        console.log('  Please type "paas" or "saas".')
+        ask()
+      }
+    )
+    ask()
+  })
+}
+
+// The app.commerce.config.ts template. displayName tracks APP_TITLE so the
+// App Management card matches the admin menu label.
+function commerceAppConfigContents (appTitle) {
+  const title = appTitle || 'Configuration Management'
+  const id = (title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')) || 'commerce-admin-management'
+  return 'import { defineConfig } from "@adobe/aio-commerce-lib-app/config";\n\n' +
+    'export default defineConfig({\n' +
+    '  metadata: {\n' +
+    `    id: ${JSON.stringify(id)},\n` +
+    `    displayName: ${JSON.stringify(title)},\n` +
+    '    version: "1.0.0",\n' +
+    '    description:\n' +
+    '      "Manage Adobe Commerce system configuration (view, edit, snapshot, " +\n' +
+    '      "audit, and revert) from a single admin app, with role-based access.",\n' +
+    '  },\n' +
+    '  // No custom installation steps — a missing `installation` block is a\n' +
+    '  // valid no-op for App Management.\n' +
+    '});\n'
+}
+
+// Seed app.commerce.config.ts (if absent) so `aio-commerce-lib-app init` runs
+// fully non-interactively: with a valid config already present it skips the
+// feature prompts and just wires deps + ext.config + install.yaml + postinstall.
+function writeCommerceAppConfig (projectRoot) {
+  const existing = ['app.commerce.config.ts', 'app.commerce.config.js', 'app.commerce.config.mjs', 'app.commerce.config.cjs', 'app.commerce.config.mts', 'app.commerce.config.cts']
+    .find((f) => fs.existsSync(path.join(projectRoot, f)))
+  if (existing) return { changed: false, file: existing }
+  const file = 'app.commerce.config.ts'
+  fs.writeFileSync(path.join(projectRoot, file), commerceAppConfigContents(readEnvValue(projectRoot, 'APP_TITLE')), 'utf8')
+  return { changed: true, file }
+}
+
+// Run Adobe's official scaffolder. Because a valid app.commerce.config.* is
+// already in place, this is non-interactive: it installs the App Management
+// deps and wires everything. Never hard-fails the setup.
+function runCommerceInit (projectRoot) {
+  const { execSync } = require('child_process')
+  console.log('[@adobedjangir/commerce-admin-management] running `npx @adobe/aio-commerce-lib-app init` (installs App Management deps + wiring)…')
+  try {
+    execSync('npx --yes @adobe/aio-commerce-lib-app init', {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      // Guard: init runs `npm install`, which retriggers our postinstall —
+      // this makes that nested run a no-op instead of recursing.
+      env: { ...process.env, COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP: '1' }
+    })
+    return { ok: true }
+  } catch (e) {
+    console.warn('[@adobedjangir/commerce-admin-management] init failed — run it manually from the project root:')
+    console.warn('  npx @adobe/aio-commerce-lib-app init')
+    console.warn(`  reason: ${e.message}`)
+    return { ok: false, error: e.message }
+  }
+}
+
+// One-shot SaaS enablement: seed config → run init → done.
+function enableSaas (projectRoot) {
+  console.log('\n[@adobedjangir/commerce-admin-management] Enabling SaaS / Commerce App Management…')
+  const cfg = writeCommerceAppConfig(projectRoot)
+  console.log(cfg.changed
+    ? `  • created ${cfg.file} (metadata derived from APP_TITLE)`
+    : `  • ${cfg.file} already present — leaving its metadata as-is`)
+  const init = runCommerceInit(projectRoot)
+  if (init.ok) {
+    console.log('[@adobedjangir/commerce-admin-management] SaaS App Management wired ✓')
+    console.log('  Final step — deploy:')
+    console.log('    aio app build --force-build && aio app deploy --force-deploy --no-build')
+  }
+  return init
+}
+
 function main () {
   // Two opt-outs:
   //   - CONFIGURATION_MANAGEMENT_SKIP_SETUP: legacy name kept for compat.
@@ -956,20 +1131,70 @@ function main () {
   if (!web.changed) {
     console.log('[@adobedjangir/commerce-admin-management] web-src bootstrap, nav.json, pages/ already in place.')
   }
+
+  // SaaS (ACCS): remind the consumer to enable App Management if they've
+  // opted in via COMMERCE_PLATFORM=saas but haven't run the init tool yet.
+  // The classic commerce/backend-ui/1 registration keeps serving the admin
+  // UI on both platforms — App Management is additive, so there's nothing to
+  // undo for PaaS and no double-registration to guard against.
+  const saas = saasGuidance(projectRoot)
+  if (saas.platform === 'saas' && saas.wired === false) {
+    console.log(
+      '\n[@adobedjangir/commerce-admin-management] COMMERCE_PLATFORM=saas but App Management is not wired yet.\n' +
+      '  Run the official one-time scaffolder from your project root:\n' +
+      '    npx @adobe/aio-commerce-lib-app init   (select "Custom Installation Steps" only)\n' +
+      '  Then customize app.commerce.config.* metadata (displayName → your APP_TITLE)\n' +
+      '  and deploy with:  aio app build --force-build && aio app deploy --force-deploy --no-build\n' +
+      '  PaaS installs can ignore this — leave COMMERCE_PLATFORM=paas.\n'
+    )
+  } else if (saas.platform === 'saas' && saas.wired === true) {
+    console.log('[@adobedjangir/commerce-admin-management] SaaS App Management is wired (commerce/extensibility/1 + app.commerce.config).')
+  }
+}
+
+// Orchestrator for the entry point. Chooses the platform (flag/env/prompt),
+// runs the standard idempotent scaffold, persists COMMERCE_PLATFORM, and — for
+// an EXPLICIT CLI run only (never a silent `npm install` postinstall) — fully
+// wires SaaS App Management when saas is chosen. End result: the operator runs
+// one command, answers paas/saas, and only has `aio app deploy` left to do.
+async function runCli () {
+  // Mirror main()'s opt-outs here too, so the nested install that init
+  // triggers (init → npm install → our postinstall) neither prompts nor
+  // recurses into a second enablement pass.
+  if (process.env.CONFIGURATION_MANAGEMENT_SKIP_SETUP === '1') return
+  if (process.env.COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP === '1') return
+
+  const isPostinstall = process.env.npm_lifecycle_event === 'postinstall'
+  const interactive = !isPostinstall
+  const projectRoot = resolveProjectRoot()
+
+  // Platform precedence: CLI flag / env / existing .env → else prompt (CLI) →
+  // else 'paas'. Postinstall never prompts.
+  let platform = resolvePlatformChoice(projectRoot || process.cwd())
+  if (!platform && interactive) platform = await promptPlatform()
+
+  // Standard scaffold (idempotent; seeds .env incl. COMMERCE_PLATFORM=paas).
+  main()
+
+  if (!projectRoot) return
+
+  // Persist the operator's explicit choice (overwrites the paas default).
+  if (platform) setEnvVar(projectRoot, 'COMMERCE_PLATFORM', platform)
+
+  // One-command SaaS enablement — explicit CLI only.
+  if (platform === 'saas' && interactive) enableSaas(projectRoot)
 }
 
 if (require.main === module) {
-  try {
-    main()
-  } catch (err) {
-    // Never fail the npm install on a scaffold problem — the package
-    // itself is fine, the consumer can always re-run
+  runCli().catch((err) => {
+    // Never fail the npm install on a scaffold problem — the package itself is
+    // fine, and the consumer can always re-run
     // `npx @adobedjangir/commerce-admin-management-setup` later.
     console.error(
       '[@adobedjangir/commerce-admin-management] setup encountered an error ' +
       '(install will continue):', err.message
     )
-  }
+  })
 }
 
 module.exports = {
@@ -977,6 +1202,13 @@ module.exports = {
   patchAppConfigDatabase,
   setupAppConfig,
   setupWebSrc,
+  saasGuidance,
+  readEnvValue,
+  setEnvVar,
+  resolvePlatformChoice,
+  writeCommerceAppConfig,
+  commerceAppConfigContents,
+  enableSaas,
   INCLUDE_REL,
   EXTENSION_POINT
 }
