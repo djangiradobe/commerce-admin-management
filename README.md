@@ -786,40 +786,71 @@ COMMERCE_PLATFORM=paas   # default — classic Manual Extensions Selection
 # COMMERCE_PLATFORM=saas # additionally register with Commerce App Management
 ```
 
-The admin UI itself is unchanged on both platforms: it's served by the
-`commerce/backend-ui/1` extension. App Management is **additive** — it layers a
-`commerce/extensibility/1` extension plus an `app.commerce.config.*` metadata
-file alongside our registration, so there's no double-registration to guard
-against and no PaaS behavior to revert.
+**How the two platforms differ (Admin UI SDK registration):**
+
+| | PaaS | SaaS / App Management |
+|---|---|---|
+| Menu registration | hand-written `registration` action (Manual Extensions Selection) | **generated** registration action from `app.commerce.config` → `adminUiSdk.registration` |
+| `commerce/backend-ui/1` | our `$include` (registration + web + 11 core actions) | **generated** (`src/commerce-backend-ui-1/`): registration action + `web: web-src` |
+| Core backend actions | under `commerce/backend-ui/1` | under `application.runtimeManifest.packages.CommerceAdminManagement` |
+| App discovery | Manual Extensions Selection | `commerce/extensibility/1` + `app.commerce.config` metadata |
+
+Both platforms use the **same** registration behavior: menu titles come from
+`APP_TITLE` / `APP_SECTION_TITLE` and the page title from `APP_PAGE_TITLE`, read
+at **runtime** from action inputs, and the registration includes `page.title`.
+PaaS uses `actions/configurations/registration/index.js`; SaaS uses
+`actions/configurations/registration-saas/index.js` (same logic, built on the
+lib's `registrationRuntimeAction`). We deliberately serve our own env-driven
+registration action rather than the lib-generated one — the generated action
+bakes static titles at build time and its schema has no `page` field.
+`app.commerce.config` still declares `adminUiSdk.registration` as App Management
+install metadata.
+
+The 11 core action definitions live in **one shared fragment**
+(`actions/configurations/core-package.yaml`) that both layouts `$include`, so the
+actions — and their `/api/v1/web/CommerceAdminManagement/<action>` URLs — are
+identical on both platforms. The React SPA and add-on packages (audit-log,
+ims-access, snapshots) are unchanged. Only the *menu registration* mechanism and
+*which extension owns the core actions* differ. PaaS is untouched.
 
 **Enabling SaaS — one command:**
 
 Run the setup CLI and answer **saas** when prompted:
 
 ```bash
-npx @adobedjangir/commerce-admin-management-setup
+npx commerce-admin-management-setup
 # Which Adobe Commerce platform is this app for? [paas/saas] (default: paas): saas
 ```
+
+> `commerce-admin-management-setup` is the **bin** shipped by the
+> `@adobedjangir/commerce-admin-management` package (already in your
+> `node_modules`), so run it **unscoped** — `npx` resolves it from
+> `node_modules/.bin`. (Don't run `npx @adobedjangir/commerce-admin-management-setup`
+> — that would try to install a package by that name, which doesn't exist.)
 
 Or skip the prompt with a flag / env var:
 
 ```bash
-npx @adobedjangir/commerce-admin-management-setup --saas
-# or: COMMERCE_PLATFORM=saas npx @adobedjangir/commerce-admin-management-setup
+npx commerce-admin-management-setup --saas
+# or: COMMERCE_PLATFORM=saas npx commerce-admin-management-setup
 ```
 
 For **saas** this does everything for you:
 
 1. Writes `COMMERCE_PLATFORM=saas` to `.env`.
-2. Seeds `app.commerce.config.ts` with metadata derived from your `APP_TITLE`
-   (so the App Management card matches the admin menu) and **no** custom
-   installation steps.
+2. Seeds `app.commerce.config.ts` — metadata + an `adminUiSdk.registration`
+   block whose `menuItems` mirror the PaaS registration action (same ids;
+   titles from `APP_TITLE` / `APP_SECTION_TITLE`).
 3. Runs `npx @adobe/aio-commerce-lib-app init`, which — because a valid config
    already exists — runs **non-interactively**: it installs the App Management
-   deps (`@adobe/aio-commerce-lib-app`, `@adobe/aio-commerce-sdk`) and wires
-   `install.yaml`, the `commerce/extensibility/1` extension, the generated
-   actions/manifest, and the `postinstall` hook — all version-matched to the
-   installed library.
+   deps and wires `install.yaml`, the `commerce/extensibility/1` extension, and
+   the `postinstall` hook.
+4. Rewires `app.config.yaml` to the SaaS extension layout: `commerce/backend-ui/1`
+   → our `backend-ui.saas.yaml` fragment (env-driven registration action +
+   web-src); the core `CommerceAdminManagement` package + the `database` block
+   move under `application.runtimeManifest`; and the addon discovery hook moves
+   to `application.hooks.pre-app-build`. (Idempotent, done with the `yaml`
+   document API — re-running is a safe no-op.)
 
 The **only** thing left for you to run is the deploy:
 

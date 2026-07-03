@@ -1,0 +1,39 @@
+# SaaS / App Management variant of the commerce/backend-ui/1 extension.
+#
+# The host app.config.yaml $includes this file for backend-ui/1 when
+# COMMERCE_PLATFORM=saas (wired by scripts/setup.js → wireSaasAppConfig). It
+# owns ONLY the Admin UI SDK registration action + the web-src shell; the 11
+# core backend actions live under application.runtimeManifest.packages
+# .CommerceAdminManagement ($include core-package.yaml) on SaaS.
+#
+# Unlike the lib-generated registration action (which bakes static titles and
+# cannot carry a `page`), our registration-saas action reads APP_TITLE /
+# APP_SECTION_TITLE / APP_PAGE_TITLE at runtime and includes page.title —
+# matching the PaaS registration action exactly.
+operations:
+  view:
+    - type: web
+      impl: index.html
+# web-src lives at the project root; climb out of configurations/ → actions/ →
+# commerce-admin-management/ → @adobedjangir/ → node_modules/ → project root.
+web: ../../../../../web-src
+runtimeManifest:
+  packages:
+    admin-ui-sdk:
+      license: Apache-2.0
+      actions:
+        registration:
+          function: registration-saas/index.js
+          web: 'yes'
+          runtime: 'nodejs:20'
+          limits:
+            concurrency: 200
+            memory: 256
+          inputs:
+            LOG_LEVEL: debug
+            APP_TITLE: $APP_TITLE
+            APP_SECTION_TITLE: $APP_SECTION_TITLE
+            APP_PAGE_TITLE: $APP_PAGE_TITLE
+          annotations:
+            require-adobe-auth: true
+            final: true

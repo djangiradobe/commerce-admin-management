@@ -980,20 +980,42 @@ function promptPlatform () {
   })
 }
 
-// The app.commerce.config.ts template. displayName tracks APP_TITLE so the
-// App Management card matches the admin menu label.
-function commerceAppConfigContents (appTitle) {
+// The app.commerce.config.ts template. Titles track APP_TITLE / APP_SECTION_TITLE
+// so the App Management card and the generated Admin UI SDK menu match the admin
+// UI. The seeded .env values are baked as fallbacks AND process.env is honored,
+// so re-generating after an env change still picks up the new titles.
+// `adminUiSdk.registration` is what makes the lib generate the
+// `commerce/backend-ui/1` registration action for SaaS (mirrors our hand-written
+// registration action's menuItems 1:1 — same ids, so nothing else changes).
+function commerceAppConfigContents (appTitle, sectionTitle) {
   const title = appTitle || 'Configuration Management'
+  const section = sectionTitle || 'Apps'
   const id = (title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')) || 'commerce-admin-management'
+  const EXT = 'CommerceAdminManagement'
   return 'import { defineConfig } from "@adobe/aio-commerce-lib-app/config";\n\n' +
+    '// Titles are configurable per project via .env; baked values are the\n' +
+    '// fallback captured at setup time.\n' +
+    `const APP_TITLE = process.env.APP_TITLE || ${JSON.stringify(title)};\n` +
+    `const APP_SECTION_TITLE = process.env.APP_SECTION_TITLE || ${JSON.stringify(section)};\n\n` +
     'export default defineConfig({\n' +
     '  metadata: {\n' +
     `    id: ${JSON.stringify(id)},\n` +
-    `    displayName: ${JSON.stringify(title)},\n` +
+    '    displayName: APP_TITLE,\n' +
     '    version: "1.0.0",\n' +
     '    description:\n' +
     '      "Manage Adobe Commerce system configuration (view, edit, snapshot, " +\n' +
     '      "audit, and revert) from a single admin app, with role-based access.",\n' +
+    '  },\n' +
+    '  // Drives the generated commerce/backend-ui/1 registration action (the\n' +
+    '  // SaaS/App Management way of registering the admin menu). Mirrors the\n' +
+    '  // hand-written registration action used on PaaS.\n' +
+    '  adminUiSdk: {\n' +
+    '    registration: {\n' +
+    '      menuItems: [\n' +
+    `        { id: "${EXT}::apps", title: APP_SECTION_TITLE, isSection: true, sortOrder: 1 },\n` +
+    `        { id: "${EXT}::configuration_management", title: APP_TITLE, parent: "${EXT}::apps", sortOrder: 10 },\n` +
+    '      ],\n' +
+    '    },\n' +
     '  },\n' +
     '  // No custom installation steps — a missing `installation` block is a\n' +
     '  // valid no-op for App Management.\n' +
@@ -1006,10 +1028,22 @@ function commerceAppConfigContents (appTitle) {
 function writeCommerceAppConfig (projectRoot) {
   const existing = ['app.commerce.config.ts', 'app.commerce.config.js', 'app.commerce.config.mjs', 'app.commerce.config.cjs', 'app.commerce.config.mts', 'app.commerce.config.cts']
     .find((f) => fs.existsSync(path.join(projectRoot, f)))
-  if (existing) return { changed: false, file: existing }
+  if (existing) {
+    // Don't overwrite a user-owned config. But a config left over from an
+    // OLDER init (metadata only) won't register the admin menu — the lib only
+    // generates the registration action when `adminUiSdk.registration` is
+    // present. Detect that and flag it (we can't safely rewrite arbitrary TS).
+    let hasAdminUiSdk = false
+    try { hasAdminUiSdk = /adminUiSdk\s*:/.test(fs.readFileSync(path.join(projectRoot, existing), 'utf8')) } catch (_) {}
+    return { changed: false, file: existing, hasAdminUiSdk }
+  }
   const file = 'app.commerce.config.ts'
-  fs.writeFileSync(path.join(projectRoot, file), commerceAppConfigContents(readEnvValue(projectRoot, 'APP_TITLE')), 'utf8')
-  return { changed: true, file }
+  fs.writeFileSync(
+    path.join(projectRoot, file),
+    commerceAppConfigContents(readEnvValue(projectRoot, 'APP_TITLE'), readEnvValue(projectRoot, 'APP_SECTION_TITLE')),
+    'utf8'
+  )
+  return { changed: true, file, hasAdminUiSdk: true }
 }
 
 // Run Adobe's official scaffolder. Because a valid app.commerce.config.* is
@@ -1035,20 +1069,120 @@ function runCommerceInit (projectRoot) {
   }
 }
 
-// One-shot SaaS enablement: seed config → run init → done.
+// Re-wire app.config.yaml for the SaaS/App Management extension model, AFTER
+// `init` has generated src/commerce-backend-ui-1/. We use the `yaml` document
+// API (present once init installed the lib) for structural edits — far safer
+// than regex over the multi-line $include/hooks blocks. Idempotent.
+//
+// Transforms (PaaS layout → SaaS layout):
+//   • commerce/backend-ui/1  $include → our SaaS fragment (backend-ui.saas.yaml):
+//     env-driven registration action (registration-saas, with page.title) + web
+//   • the addon-discovery pre-app-build hook moves off backend-ui/1 onto
+//     application.hooks.pre-app-build
+//   • our 11 core actions move under application.runtimeManifest.packages
+//     .CommerceAdminManagement via $include of the SAME shared fragment
+//   • database provisioning moves under application.runtimeManifest
+const CORE_PKG_INCLUDE = 'node_modules/@adobedjangir/commerce-admin-management/actions/configurations/core-package.yaml'
+// We serve backend-ui/1 from OUR fragment (env-driven registration action with
+// page.title) rather than the lib-generated src/commerce-backend-ui-1/ (which
+// bakes static titles and can't carry a page). app.commerce.config still keeps
+// adminUiSdk.registration as App Management install metadata.
+const SAAS_BACKEND_UI_INCLUDE = 'node_modules/@adobedjangir/commerce-admin-management/actions/configurations/backend-ui.saas.yaml'
+const DISCOVER_CMD = 'node node_modules/@adobedjangir/commerce-admin-management/scripts/discover.js'
+
+function wireSaasAppConfig (projectRoot) {
+  const p = path.join(projectRoot, 'app.config.yaml')
+  if (!fs.existsSync(p)) return { changed: false, reason: 'no-app-config' }
+
+  let YAML
+  try { YAML = require(require.resolve('yaml', { paths: [projectRoot] })) } catch (_) {
+    return { changed: false, reason: 'yaml-unavailable' }
+  }
+
+  const doc = YAML.parseDocument(fs.readFileSync(p, 'utf8'))
+  if (doc.errors && doc.errors.length) {
+    return { changed: false, reason: 'parse-error', detail: doc.errors[0].message }
+  }
+  const changes = []
+  const BE = ['extensions', 'commerce/backend-ui/1']
+
+  // 1. Point backend-ui/1 at the generated ext.config + drop our hand-written
+  //    include and the discover hook that lived under it.
+  if (doc.hasIn(BE)) {
+    const cur = doc.getIn([...BE, '$include'])
+    if (cur !== SAAS_BACKEND_UI_INCLUDE) {
+      doc.setIn([...BE, '$include'], SAAS_BACKEND_UI_INCLUDE)
+      changes.push('backend-ui→saas-fragment')
+    }
+    if (doc.hasIn([...BE, 'hooks'])) {
+      doc.deleteIn([...BE, 'hooks'])
+      changes.push('drop-backend-ui-hook')
+    }
+  }
+
+  // 2. Addon-discovery hook → application.hooks.pre-app-build.
+  if (doc.getIn(['application', 'hooks', 'pre-app-build']) !== DISCOVER_CMD) {
+    doc.setIn(['application', 'hooks', 'pre-app-build'], DISCOVER_CMD)
+    changes.push('application-discover-hook')
+  }
+
+  // 3. Database provisioning under application.runtimeManifest.
+  if (!doc.hasIn(['application', 'runtimeManifest', 'database'])) {
+    const region = (readEnvValue(projectRoot, 'AIO_DB_REGION') || 'emea').trim() || 'emea'
+    doc.setIn(['application', 'runtimeManifest', 'database', 'auto-provision'], true)
+    doc.setIn(['application', 'runtimeManifest', 'database', 'region'], region)
+    changes.push('application-database')
+  }
+
+  // 4. Core actions package under application.runtimeManifest.packages,
+  //    $include-ing the SAME shared fragment PaaS uses.
+  const CAM = ['application', 'runtimeManifest', 'packages', 'CommerceAdminManagement']
+  if (!doc.hasIn(CAM)) {
+    doc.setIn([...CAM, '$include'], CORE_PKG_INCLUDE)
+    changes.push('application-core-package')
+  }
+
+  if (changes.length === 0) return { changed: false, reason: 'already-wired' }
+  fs.writeFileSync(p, doc.toString(), 'utf8')
+  return { changed: true, changes }
+}
+
+// One-shot SaaS enablement: seed config → run init → rewire app.config → done.
 function enableSaas (projectRoot) {
   console.log('\n[@adobedjangir/commerce-admin-management] Enabling SaaS / Commerce App Management…')
   const cfg = writeCommerceAppConfig(projectRoot)
   console.log(cfg.changed
-    ? `  • created ${cfg.file} (metadata derived from APP_TITLE)`
-    : `  • ${cfg.file} already present — leaving its metadata as-is`)
-  const init = runCommerceInit(projectRoot)
-  if (init.ok) {
-    console.log('[@adobedjangir/commerce-admin-management] SaaS App Management wired ✓')
-    console.log('  Final step — deploy:')
-    console.log('    aio app build --force-build && aio app deploy --force-deploy --no-build')
+    ? `  • created ${cfg.file} (metadata + adminUiSdk.registration from APP_TITLE)`
+    : `  • ${cfg.file} already present — leaving it as-is`)
+  if (!cfg.changed && !cfg.hasAdminUiSdk) {
+    console.warn(`  ⚠ ${cfg.file} has no \`adminUiSdk.registration\` block — the admin menu`)
+    console.warn('    will NOT be registered on SaaS. Add it (see README "SaaS / App')
+    console.warn('    Management"), or delete the file and re-run to regenerate it.')
   }
-  return init
+  const init = runCommerceInit(projectRoot)
+  if (!init.ok) return init
+
+  // init generated src/commerce-backend-ui-1/; now flip app.config.yaml to the
+  // SaaS extension model (generated registration owns backend-ui/1; our core
+  // actions + db + discovery hook move under `application`).
+  const wire = wireSaasAppConfig(projectRoot)
+  if (wire.changed) {
+    console.log(`  • rewired app.config.yaml for App Management: ${wire.changes.join(', ')}`)
+  } else if (wire.reason === 'already-wired') {
+    console.log('  • app.config.yaml already in the SaaS extension layout')
+  } else if (wire.reason === 'yaml-unavailable' || wire.reason === 'parse-error') {
+    console.warn('[@adobedjangir/commerce-admin-management] could not auto-rewire app.config.yaml ' +
+      `(${wire.reason}). Apply these manually — see the README "SaaS / App Management" section:`)
+    console.warn(`    extensions.commerce/backend-ui/1.$include → ${SAAS_BACKEND_UI_INCLUDE}`)
+    console.warn(`    application.hooks.pre-app-build → ${DISCOVER_CMD}`)
+    console.warn('    application.runtimeManifest.database.{auto-provision:true,region:<region>}')
+    console.warn(`    application.runtimeManifest.packages.CommerceAdminManagement.$include → ${CORE_PKG_INCLUDE}`)
+  }
+
+  console.log('[@adobedjangir/commerce-admin-management] SaaS App Management wired ✓')
+  console.log('  Final step — deploy:')
+  console.log('    aio app build --force-build && aio app deploy --force-deploy --no-build')
+  return { ok: true, wire }
 }
 
 function main () {
@@ -1063,7 +1197,7 @@ function main () {
   if (!projectRoot) {
     console.log(
       '[@adobedjangir/commerce-admin-management] No App Builder project found — skip setup. ' +
-        'Run `npx @adobedjangir/commerce-admin-management-setup` from your project root after `aio app init`.'
+        'Run `npx commerce-admin-management-setup` from your project root after `aio app init`.'
     )
     return
   }
@@ -1189,7 +1323,7 @@ if (require.main === module) {
   runCli().catch((err) => {
     // Never fail the npm install on a scaffold problem — the package itself is
     // fine, and the consumer can always re-run
-    // `npx @adobedjangir/commerce-admin-management-setup` later.
+    // `npx commerce-admin-management-setup` later.
     console.error(
       '[@adobedjangir/commerce-admin-management] setup encountered an error ' +
       '(install will continue):', err.message
@@ -1208,6 +1342,7 @@ module.exports = {
   resolvePlatformChoice,
   writeCommerceAppConfig,
   commerceAppConfigContents,
+  wireSaasAppConfig,
   enableSaas,
   INCLUDE_REL,
   EXTENSION_POINT
