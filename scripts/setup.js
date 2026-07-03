@@ -1159,6 +1159,90 @@ function wireSaasAppConfig (projectRoot) {
   return { changed: true, changes }
 }
 
+// Detect whether app.config.yaml is currently in the SaaS layout, so a switch
+// back to paas knows there's something to undo.
+function isSaasLayout (projectRoot) {
+  const p = path.join(projectRoot, 'app.config.yaml')
+  if (!fs.existsSync(p)) return false
+  let c = ''
+  try { c = fs.readFileSync(p, 'utf8') } catch (_) { return false }
+  return c.includes('backend-ui.saas.yaml') ||
+    c.includes('commerce/extensibility/1') ||
+    /packages:[\s\S]*CommerceAdminManagement:\s*\n\s*\$include/.test(c)
+}
+
+// Reverse of wireSaasAppConfig: return app.config.yaml to the PaaS layout so a
+// saas→paas switch doesn't leave a broken hybrid (e.g. a duplicate
+// CommerceAdminManagement package under both backend-ui/1 and application).
+// Removes the App Management extension too. Idempotent. Leaves the dead
+// app.commerce.config.* / install.yaml / src/ files on disk (harmless, and
+// re-used verbatim if the operator switches back to saas).
+function unwireSaasAppConfig (projectRoot) {
+  const p = path.join(projectRoot, 'app.config.yaml')
+  if (!fs.existsSync(p)) return { changed: false, reason: 'no-app-config' }
+  let YAML
+  try { YAML = require(require.resolve('yaml', { paths: [projectRoot] })) } catch (_) {
+    return { changed: false, reason: 'yaml-unavailable' }
+  }
+  const doc = YAML.parseDocument(fs.readFileSync(p, 'utf8'))
+  if (doc.errors && doc.errors.length) return { changed: false, reason: 'parse-error', detail: doc.errors[0].message }
+  const changes = []
+  const BE = ['extensions', 'commerce/backend-ui/1']
+
+  // 1. backend-ui/1 → PaaS include (which carries the core actions again) +
+  //    restore the discover pre-app-build hook under it.
+  if (doc.hasIn(BE)) {
+    if (doc.getIn([...BE, '$include']) !== INCLUDE_REL) {
+      doc.setIn([...BE, '$include'], INCLUDE_REL); changes.push('backend-ui→paas')
+    }
+    if (doc.getIn([...BE, 'hooks', 'pre-app-build']) !== DISCOVER_CMD) {
+      doc.setIn([...BE, 'hooks', 'pre-app-build'], DISCOVER_CMD); changes.push('backend-ui-hook')
+    }
+  }
+
+  // 2. Drop the duplicate core package from application.
+  const CAM = ['application', 'runtimeManifest', 'packages', 'CommerceAdminManagement']
+  if (doc.hasIn(CAM)) { doc.deleteIn(CAM); changes.push('-application-core-package') }
+
+  // 3. Drop the application-level database (PaaS provisions it via ext.config).
+  if (doc.hasIn(['application', 'runtimeManifest', 'database'])) {
+    doc.deleteIn(['application', 'runtimeManifest', 'database']); changes.push('-application-database')
+  }
+
+  // 4. Drop the application discover hook (it moves back to backend-ui/1).
+  if (doc.getIn(['application', 'hooks', 'pre-app-build']) === DISCOVER_CMD) {
+    doc.deleteIn(['application', 'hooks', 'pre-app-build']); changes.push('-application-hook')
+    const hooks = doc.getIn(['application', 'hooks'])
+    if (hooks && hooks.items && hooks.items.length === 0) doc.deleteIn(['application', 'hooks'])
+  }
+
+  // 5. Remove the App Management extension so nothing SaaS-only deploys.
+  if (doc.hasIn(['extensions', 'commerce/extensibility/1'])) {
+    doc.deleteIn(['extensions', 'commerce/extensibility/1']); changes.push('-extensibility')
+  }
+
+  if (changes.length === 0) return { changed: false, reason: 'already-paas' }
+  fs.writeFileSync(p, doc.toString(), 'utf8')
+  return { changed: true, changes }
+}
+
+// Revert to the PaaS layout (only touches app.config.yaml if it's in SaaS
+// layout). The dead SaaS files are left in place — harmless and reused on a
+// switch back.
+function disableSaas (projectRoot) {
+  if (!isSaasLayout(projectRoot)) return { changed: false, reason: 'already-paas' }
+  console.log('\n[@adobedjangir/commerce-admin-management] Switching back to PaaS — reverting SaaS wiring…')
+  const r = unwireSaasAppConfig(projectRoot)
+  if (r.changed) {
+    console.log(`  • reverted app.config.yaml: ${r.changes.join(', ')}`)
+    console.log('  • left app.commerce.config.*, install.yaml, src/commerce-extensibility-1/ on disk (unused on PaaS)')
+  } else if (r.reason === 'yaml-unavailable' || r.reason === 'parse-error') {
+    console.warn(`[@adobedjangir/commerce-admin-management] could not auto-revert app.config.yaml (${r.reason}); revert manually.`)
+  }
+  console.log('[@adobedjangir/commerce-admin-management] PaaS layout restored ✓  Deploy with: aio app deploy')
+  return r
+}
+
 // One-shot SaaS enablement: seed config → run init → rewire app.config → done.
 function enableSaas (projectRoot) {
   console.log('\n[@adobedjangir/commerce-admin-management] Enabling SaaS / Commerce App Management…')
@@ -1336,8 +1420,13 @@ async function runCli () {
   // Persist the operator's explicit choice (overwrites the paas default).
   if (platform) setEnvVar(projectRoot, 'COMMERCE_PLATFORM', platform)
 
-  // One-command SaaS enablement — explicit CLI only.
-  if (platform === 'saas' && interactive) enableSaas(projectRoot)
+  // Explicit CLI transitions:
+  //   • saas → wire App Management.
+  //   • paas → cleanly revert if the project is currently in SaaS layout.
+  if (interactive) {
+    if (platform === 'saas') enableSaas(projectRoot)
+    else if (platform === 'paas') disableSaas(projectRoot)
+  }
 }
 
 if (require.main === module) {
@@ -1366,7 +1455,10 @@ module.exports = {
   writeCommerceAppConfig,
   commerceAppConfigContents,
   wireSaasAppConfig,
+  unwireSaasAppConfig,
+  isSaasLayout,
   enableSaas,
+  disableSaas,
   INCLUDE_REL,
   EXTENSION_POINT
 }
