@@ -138,7 +138,9 @@ async function main (params) {
   // RBAC gate: writing config requires editor or admin. Viewers are read-only.
   // Enforced server-side via the ims-access hook (resolves the caller's role
   // from their token). Fail-open only when the add-on/role can't be resolved.
-  if (rbacHook && rbacHook.assertMinRole) {
+  // Skipped when `_bulkValidated` — a bulk caller already gated once (the gate
+  // does an IMS profile fetch, so we don't repeat it per target).
+  if (!params._bulkValidated && rbacHook && rbacHook.assertMinRole) {
     try {
       const roleErr = await rbacHook.assertMinRole(params, 'editor')
       if (roleErr) return { statusCode: 403, body: { error: roleErr } }
@@ -170,34 +172,43 @@ async function main (params) {
     // Bad values are rejected wholesale: either the whole payload is valid
     // or none of it is written. This prevents partial writes that the UI
     // can't easily recover from.
-    const schema = await loadSchema(client)
-    if (schema) {
-      const fieldByPath = indexSchemaByPath(schema)
-      const fieldErrors = {}
-      // Caller-supplied role (resolved by the UI via ims-user-profile).
-      // RBAC enforcement is delegated to the ims-access add-on's hook —
-      // when the add-on isn't installed, requiredRole tags become advisory
-      // (UI still hides + disables, but the server can't independently
-      // verify, so it doesn't block).
-      const callerRole = typeof params.role === 'string' ? params.role : null
-      for (const [path, value] of Object.entries(values)) {
-        // Skip sentinels — they're not user data.
-        if (value === USE_DEFAULT_SENTINEL) continue
-        if (sensitiveSet.has(path) && value === SENSITIVE_PLACEHOLDER) continue
-        const field = fieldByPath.get(path)
-        if (!field) continue // path not in schema — silently allowed (legacy/extension paths)
-        const err = validateFieldValue(field, value)
-        if (err) fieldErrors[path] = err
-        if (rbacHook && rbacHook.checkFieldRole) {
-          const roleErr = rbacHook.checkFieldRole(callerRole, field)
-          if (roleErr) fieldErrors[path] = roleErr
+    //
+    // Skipped when `_bulkValidated`: a bulk caller validates the (identical)
+    // values ONCE up front, then writes each scope target with this flag set.
+    if (!params._bulkValidated) {
+      const schema = await loadSchema(client)
+      if (schema) {
+        const fieldByPath = indexSchemaByPath(schema)
+        const fieldErrors = {}
+        // Caller-supplied role (resolved by the UI via ims-user-profile).
+        // RBAC enforcement is delegated to the ims-access add-on's hook —
+        // when the add-on isn't installed, requiredRole tags become advisory
+        // (UI still hides + disables, but the server can't independently
+        // verify, so it doesn't block).
+        const callerRole = typeof params.role === 'string' ? params.role : null
+        for (const [path, value] of Object.entries(values)) {
+          // Skip sentinels — they're not user data.
+          if (value === USE_DEFAULT_SENTINEL) continue
+          if (sensitiveSet.has(path) && value === SENSITIVE_PLACEHOLDER) continue
+          const field = fieldByPath.get(path)
+          if (!field) continue // path not in schema — silently allowed (legacy/extension paths)
+          const err = validateFieldValue(field, value)
+          if (err) fieldErrors[path] = err
+          if (rbacHook && rbacHook.checkFieldRole) {
+            const roleErr = rbacHook.checkFieldRole(callerRole, field)
+            if (roleErr) fieldErrors[path] = roleErr
+          }
+        }
+        if (Object.keys(fieldErrors).length) {
+          return {
+            statusCode: 400,
+            body: { error: 'Validation failed', fieldErrors }
+          }
         }
       }
-      if (Object.keys(fieldErrors).length) {
-        return {
-          statusCode: 400,
-          body: { error: 'Validation failed', fieldErrors }
-        }
+      // validate-only mode (bulk pre-check): checks passed, don't write.
+      if (params._validateOnly) {
+        return { statusCode: 200, body: { ok: true, validated: true } }
       }
     }
 

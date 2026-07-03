@@ -136,11 +136,30 @@ const DEFAULT_ACCS_SCOPES = [
   'additional_info.roles', 'additional_info.projectedProductContext', 'commerce.accs'
 ]
 
+// Per-warm-container cache of the minted bearer. IMS S2S tokens live ~24h, so
+// minting one on every Commerce REST call is pure latency. Cache keyed by the
+// credential+scopes signature, refreshed a minute before expiry (exp read from
+// the JWT, with a conservative fallback). Reused across warm invocations.
+let _bearerCache = null // { key, token, expMs }
+const BEARER_MARGIN_MS = 60 * 1000
+const BEARER_FALLBACK_TTL_MS = 60 * 60 * 1000 // if exp can't be read
+
+function jwtExpMs (token) {
+  try {
+    const part = String(token).split('.')[1]
+    const json = Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+    const claims = JSON.parse(json)
+    if (claims && claims.exp) return Number(claims.exp) * 1000
+    if (claims && claims.created_at && claims.expires_in) return Number(claims.created_at) + Number(claims.expires_in)
+  } catch (_) {}
+  return 0
+}
+
 /**
- * Mint a SaaS-side bearer token from the workspace's IMS Server-to-Server
- * credential. Reads client/secret/org/scopes from params, preferring the
- * OAUTH_* set and falling back to IMS_OAUTH_S2S_* when OAUTH_* is absent.
- * Tokens are short-lived; we mint per-request to keep secret-rotation safe.
+ * Mint (or reuse) a SaaS-side bearer token from the workspace's IMS
+ * Server-to-Server credential. Reads client/secret/org/scopes from params,
+ * preferring the OAUTH_* set and falling back to IMS_OAUTH_S2S_*. The token is
+ * cached per warm container until shortly before it expires.
  *
  * Returns the access-token string. Throws when creds are missing or IMS rejects.
  */
@@ -159,6 +178,14 @@ async function mintSaasBearerToken (params) {
   if (!scopes.length) scopes = DEFAULT_ACCS_SCOPES.slice()
   if (!scopes.includes('commerce.accs')) scopes.push('commerce.accs')
 
+  // Serve from cache when the token is for the same creds+scopes and isn't
+  // about to expire.
+  const cacheKey = `${clientId}|${orgId}|${scopes.slice().sort().join(',')}`
+  const now = Date.now()
+  if (_bearerCache && _bearerCache.key === cacheKey && (_bearerCache.expMs - now) > BEARER_MARGIN_MS) {
+    return _bearerCache.token
+  }
+
   const { Ims } = require('@adobe/aio-lib-ims')
   const ims = new Ims()
   const tokenResult = await ims.getAccessTokenByClientCredentials(
@@ -169,6 +196,7 @@ async function mintSaasBearerToken (params) {
   if (!token) {
     throw new Error('IMS returned no access token for commerce.accs scope')
   }
+  _bearerCache = { key: cacheKey, token, expMs: jwtExpMs(token) || (now + BEARER_FALLBACK_TTL_MS) }
   return token
 }
 

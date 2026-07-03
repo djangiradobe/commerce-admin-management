@@ -21,6 +21,28 @@ async function main (params) {
     return errorResponse(400, 'targets must be a non-empty array of { scope, scopeId }', logger)
   }
 
+  const bulkActor = actor ? `${actor} (bulk)` : 'system:bulk'
+
+  // Gate (role) + validate the values ONCE. The values are identical across
+  // all targets (only scope/scopeId differ), and the RBAC gate does an IMS
+  // profile fetch — so doing this per target would be N redundant checks +
+  // N IMS round-trips. Fail fast here; then each target write skips re-checking.
+  const first = targets[0] || {}
+  const check = await saveMain({
+    ...params,
+    values,
+    sensitivePaths,
+    scope: first.scope,
+    scopeId: first.scopeId ?? first.scope_id,
+    actor: bulkActor,
+    _validateOnly: true
+  })
+  if (check && check.statusCode === 403) return check // role gate failed → applies to all
+  const checkBody = check?.body || check
+  if (checkBody && checkBody.fieldErrors) {
+    return { statusCode: 400, body: { ok: false, error: 'Validation failed', fieldErrors: checkBody.fieldErrors } }
+  }
+
   const results = []
   for (const t of targets) {
     const scope = t && t.scope
@@ -36,7 +58,8 @@ async function main (params) {
         sensitivePaths,
         scope,
         scopeId,
-        actor: actor ? `${actor} (bulk)` : 'system:bulk'
+        actor: bulkActor,
+        _bulkValidated: true // already gated + validated above — write only
       })
       const body = inner?.body || inner
       if (body && body.fieldErrors) {
