@@ -349,7 +349,7 @@ Licensed under the Apache License, Version 2.0
 import React from 'react'
 import { View, Heading } from '@adobe/react-spectrum'
 
-export default function Welcome ({ runtime, ims }) {
+export default function Welcome ({ runtime, ims }: any) {
   return (
     <View padding="size-400">
       <Heading level={2}>Welcome</Heading>
@@ -441,7 +441,7 @@ function indexHtmlContents () {
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
-    <script src="./src/index.js" async type="module"></script>
+    <script src="./src/index.tsx" async type="module"></script>
   </body>
 </html>
 `
@@ -470,6 +470,37 @@ function faviconSvgContents () {
 `
 }
 
+// Migrate a legacy JavaScript web-src shell to TypeScript in place: rename the
+// scaffolded .js/.jsx sources to .tsx/.ts (preserving their contents, e.g. the
+// add-on registrations inside addons) and repoint the index.html entry. Only
+// renames when the .js exists and the TS target doesn't; if both exist the
+// legacy .js is dropped (the .ts/.tsx is authoritative). Idempotent no-op once
+// migrated or for a fresh (TS-from-the-start) install.
+function migrateWebSrcToTs (webSrcRoot, webSrcDir) {
+  const renames = [
+    [path.join(webSrcDir, 'index.js'), path.join(webSrcDir, 'index.tsx')],
+    [path.join(webSrcDir, 'addons.js'), path.join(webSrcDir, 'addons.tsx')],
+    [path.join(webSrcDir, 'exc-runtime.js'), path.join(webSrcDir, 'exc-runtime.ts')],
+    [path.join(webSrcDir, 'pages', 'index.js'), path.join(webSrcDir, 'pages', 'index.tsx')],
+    [path.join(webSrcDir, 'pages', 'Welcome.js'), path.join(webSrcDir, 'pages', 'Welcome.tsx')]
+  ]
+  const migrated = []
+  for (const [oldP, newP] of renames) {
+    const hasOld = fs.existsSync(oldP)
+    const hasNew = fs.existsSync(newP)
+    if (hasOld && !hasNew) { fs.renameSync(oldP, newP); migrated.push(path.basename(newP)) }
+    else if (hasOld && hasNew) { fs.rmSync(oldP); migrated.push('drop ' + path.basename(oldP)) }
+  }
+  // Repoint the HTML entry from the .js bootstrap to the .tsx one.
+  const htmlP = path.join(webSrcRoot, 'index.html')
+  if (fs.existsSync(htmlP)) {
+    const html = fs.readFileSync(htmlP, 'utf8')
+    const patched = html.replace('./src/index.js"', './src/index.tsx"')
+    if (patched !== html) { fs.writeFileSync(htmlP, patched, 'utf8'); migrated.push('index.html→tsx') }
+  }
+  return migrated
+}
+
 function setupWebSrc (projectRoot) {
   const webSrcRoot = path.join(projectRoot, 'web-src')
   const webSrcDir = path.join(webSrcRoot, 'src')
@@ -478,22 +509,26 @@ function setupWebSrc (projectRoot) {
   // and our package depends on one.
   ensureDir(webSrcDir)
 
+  // Bring a legacy JS shell up to the TS layout before writing, so we don't
+  // create .tsx duplicates alongside stale .js (which Parcel would double-load).
+  const migrated = migrateWebSrcToTs(webSrcRoot, webSrcDir)
+
   const results = {
-    html:       writeIfMissing(path.join(webSrcRoot, 'index.html'),        indexHtmlContents()),
-    favicon:    writeIfMissing(path.join(webSrcRoot, 'favicon.svg'),       faviconSvgContents()),
-    excRuntime: writeIfMissing(path.join(webSrcDir, 'exc-runtime.js'),     excRuntimeContents()),
-    bootstrap:  writeBootstrap(path.join(webSrcDir, 'index.js'),           bootstrapContents()),
-    nav:        writeIfMissing(path.join(webSrcDir, 'nav.json'),           navJsonContents()),
-    // addons.js is host-owned (created once, never overwritten) so add-on
-    // registrations survive core re-installs that rewrite index.js.
-    addons:     writeIfMissing(path.join(webSrcDir, 'addons.js'),          addonsContents()),
-    pages:      writeIfMissing(path.join(webSrcDir, 'pages', 'index.js'),  pagesIndexContents()),
+    html:       writeIfMissing(path.join(webSrcRoot, 'index.html'),         indexHtmlContents()),
+    favicon:    writeIfMissing(path.join(webSrcRoot, 'favicon.svg'),        faviconSvgContents()),
+    excRuntime: writeIfMissing(path.join(webSrcDir, 'exc-runtime.ts'),      excRuntimeContents()),
+    bootstrap:  writeBootstrap(path.join(webSrcDir, 'index.tsx'),           bootstrapContents()),
+    nav:        writeIfMissing(path.join(webSrcDir, 'nav.json'),            navJsonContents()),
+    // addons.tsx is host-owned (created once, never overwritten) so add-on
+    // registrations survive core re-installs that rewrite index.tsx.
+    addons:     writeIfMissing(path.join(webSrcDir, 'addons.tsx'),          addonsContents()),
+    pages:      writeIfMissing(path.join(webSrcDir, 'pages', 'index.tsx'),  pagesIndexContents()),
     // Default starter page — only created on first install, never overwritten,
     // and never auto-removed even if the dev deletes the registry entry.
-    welcome:    writeIfMissing(path.join(webSrcDir, 'pages', 'Welcome.js'), welcomePageContents())
+    welcome:    writeIfMissing(path.join(webSrcDir, 'pages', 'Welcome.tsx'), welcomePageContents())
   }
-  const changed = Object.values(results).some((r) => r.changed)
-  return { changed, results }
+  const changed = migrated.length > 0 || Object.values(results).some((r) => r.changed)
+  return { changed, results, migrated }
 }
 
 /**

@@ -69,8 +69,14 @@ function replaceRegion (content, startMarker, endMarker, body) {
  * Returns { changed, count }.
  */
 function regenerate (root) {
-  const addonsPath = path.join(root, 'web-src', 'src', 'addons.js')
-  if (!fs.existsSync(addonsPath)) return { changed: false, count: 0, reason: 'no-addons-file' }
+  // Prefer the TypeScript addons file; fall back to the legacy .js for hosts
+  // not yet migrated to the TS shell.
+  const webSrcDir = path.join(root, 'web-src', 'src')
+  const addonsPath = [
+    path.join(webSrcDir, 'addons.tsx'),
+    path.join(webSrcDir, 'addons.js')
+  ].find((p) => fs.existsSync(p))
+  if (!addonsPath) return { changed: false, count: 0, reason: 'no-addons-file' }
 
   const addons = discoverAddons(root)
   const before = fs.readFileSync(addonsPath, 'utf8')
