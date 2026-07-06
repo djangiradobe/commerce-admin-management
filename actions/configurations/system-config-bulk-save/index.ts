@@ -11,7 +11,7 @@ const { Core } = require('@adobe/aio-sdk')
 const { errorResponse, checkMissingRequestInputs } = require('../../utils')
 const { main: saveMain } = require('../system-config-save')
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('system-config-bulk-save', { level: params.LOG_LEVEL || 'info' })
   const missing = checkMissingRequestInputs(params, ['values', 'targets'], [])
   if (missing) return errorResponse(400, missing, logger)
@@ -84,5 +84,3 @@ async function main (params) {
     }
   }
 }
-
-exports.main = main

@@ -462,6 +462,28 @@ import '@adobe/exc-app'
 `
 }
 
+function webSrcTsconfigContents () {
+  // Editor/type-check config scoped to the browser web-src shell. Parcel does
+  // the real transpile; this just stops the TS language server from erroring on
+  // JSX (needs `jsx`) and gives DOM globals. Lenient — the shell is loosely typed.
+  return JSON.stringify({
+    compilerOptions: {
+      target: 'ES2020',
+      module: 'ESNext',
+      moduleResolution: 'node',
+      jsx: 'react',
+      lib: ['DOM', 'DOM.Iterable', 'ES2020'],
+      allowJs: true,
+      esModuleInterop: true,
+      skipLibCheck: true,
+      strict: false,
+      noImplicitAny: false,
+      noEmit: true
+    },
+    include: ['src']
+  }, null, 2) + '\n'
+}
+
 function faviconSvgContents () {
   // Inline SVG gear — small enough to inline, doesn't pull in a binary asset.
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#1473e6">
@@ -515,6 +537,7 @@ function setupWebSrc (projectRoot) {
 
   const results = {
     html:       writeIfMissing(path.join(webSrcRoot, 'index.html'),         indexHtmlContents()),
+    tsconfig:   writeIfMissing(path.join(webSrcRoot, 'tsconfig.json'),       webSrcTsconfigContents()),
     favicon:    writeIfMissing(path.join(webSrcRoot, 'favicon.svg'),        faviconSvgContents()),
     excRuntime: writeIfMissing(path.join(webSrcDir, 'exc-runtime.ts'),      excRuntimeContents()),
     bootstrap:  writeBootstrap(path.join(webSrcDir, 'index.tsx'),           bootstrapContents()),
@@ -1027,6 +1050,57 @@ function promptPlatform (def) {
   })
 }
 
+// Free-text prompt with a default (Enter accepts it). Returns `def` on a
+// non-TTY so non-interactive runs never block.
+function promptValue (question, def) {
+  return new Promise((resolve) => {
+    if (!process.stdin.isTTY) return resolve(def)
+    const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout })
+    rl.question(`${question}${def ? ` (default: ${def})` : ''}: `, (ans) => {
+      rl.close()
+      const v = String(ans == null ? '' : ans).trim()
+      resolve(v || def)
+    })
+  })
+}
+
+// Read a --flag=value from argv (undefined if absent).
+function cliFlagValue (name) {
+  const re = new RegExp('^--' + name + '=(.*)$')
+  for (const a of process.argv.slice(2)) {
+    const m = re.exec(a)
+    if (m) return m[1]
+  }
+  return undefined
+}
+
+// Interactive per-project title prompts (APP_TITLE / APP_SECTION_TITLE /
+// APP_PAGE_TITLE), persisted to .env. Defaults come from any current .env value
+// (so re-runs pre-fill), else the standard defaults. A --app-title= /
+// --app-section-title= / --app-page-title= flag skips that field's prompt.
+async function promptTitles (projectRoot) {
+  const current = (key, dflt) => {
+    const v = readEnvValue(projectRoot, key)
+    return (v && v !== '' && !String(v).startsWith('$')) ? v : dflt
+  }
+  const titleFlag = cliFlagValue('app-title')
+  const title = titleFlag != null ? titleFlag
+    : await promptValue('App title — Commerce admin menu label', current('APP_TITLE', 'Configuration Management'))
+
+  const sectionFlag = cliFlagValue('app-section-title')
+  const section = sectionFlag != null ? sectionFlag
+    : await promptValue('Parent section label the menu sits under', current('APP_SECTION_TITLE', 'Apps'))
+
+  const pageFlag = cliFlagValue('app-page-title')
+  const page = pageFlag != null ? pageFlag
+    : await promptValue('In-app page/tab title', current('APP_PAGE_TITLE', title))
+
+  setEnvVar(projectRoot, 'APP_TITLE', title)
+  setEnvVar(projectRoot, 'APP_SECTION_TITLE', section)
+  setEnvVar(projectRoot, 'APP_PAGE_TITLE', page)
+  return { title, section, page }
+}
+
 // The app.commerce.config.ts template. Titles track APP_TITLE / APP_SECTION_TITLE
 // so the App Management card and the generated Admin UI SDK menu match the admin
 // UI. The seeded .env values are baked as fallbacks AND process.env is honored,
@@ -1039,7 +1113,26 @@ function commerceAppConfigContents (appTitle, sectionTitle) {
   const section = sectionTitle || 'Apps'
   const id = (title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')) || 'commerce-admin-management'
   const EXT = 'CommerceAdminManagement'
-  return 'import { defineConfig } from "@adobe/aio-commerce-lib-app/config";\n\n' +
+  return 'import { defineConfig } from "@adobe/aio-commerce-lib-app/config";\n' +
+    'import { readFileSync, existsSync } from "fs";\n' +
+    'import { join } from "path";\n\n' +
+    '// Load .env at evaluation time so the App Management metadata + menu titles\n' +
+    '// reflect the project\'s CURRENT config on every build (aio does not inject\n' +
+    '// .env into config evaluation). Without this, titles only updated when the\n' +
+    '// setup CLI was re-run.\n' +
+    'try {\n' +
+    '  const envPath = join(process.cwd(), ".env");\n' +
+    '  if (existsSync(envPath)) {\n' +
+    '    for (const line of readFileSync(envPath, "utf8").split(/\\r?\\n/)) {\n' +
+    '      const t = line.trim();\n' +
+    '      const eq = t.indexOf("=");\n' +
+    '      if (eq > 0 && !t.startsWith("#")) {\n' +
+    '        const k = t.slice(0, eq).trim();\n' +
+    '        if (k && process.env[k] === undefined) process.env[k] = t.slice(eq + 1).trim();\n' +
+    '      }\n' +
+    '    }\n' +
+    '  }\n' +
+    '} catch (e) { /* fall back to baked defaults below */ }\n\n' +
     '// Titles are configurable per project via .env; baked values are the\n' +
     '// fallback captured at setup time.\n' +
     `const APP_TITLE = process.env.APP_TITLE || ${JSON.stringify(title)};\n` +
@@ -1447,6 +1540,18 @@ async function runCli () {
     platform = interactive ? await promptPlatform(def) : def
   }
 
+  // Prompt for the per-project titles (APP_TITLE / APP_SECTION_TITLE /
+  // APP_PAGE_TITLE) — same for paas and saas. Persisted to .env BEFORE main()
+  // so ensureEnvDefaults respects them and (for saas) enableSaas seeds the
+  // App Management config from the chosen title. Interactive only; postinstall
+  // relies on ensureEnvDefaults for defaults. Flags (--app-title= etc.) also
+  // work here for automation.
+  if (projectRoot && (interactive || cliFlagValue('app-title') != null ||
+      cliFlagValue('app-section-title') != null || cliFlagValue('app-page-title') != null)) {
+    const t = await promptTitles(projectRoot)
+    console.log(`[@adobedjangir/commerce-admin-management] titles → APP_TITLE="${t.title}", APP_SECTION_TITLE="${t.section}", APP_PAGE_TITLE="${t.page}"`)
+  }
+
   // Standard scaffold (idempotent; seeds .env incl. COMMERCE_PLATFORM=paas).
   main()
 
@@ -1487,6 +1592,8 @@ module.exports = {
   explicitPlatformChoice,
   resolvePlatformChoice,
   promptPlatform,
+  promptTitles,
+  cliFlagValue,
   writeCommerceAppConfig,
   commerceAppConfigContents,
   wireSaasAppConfig,

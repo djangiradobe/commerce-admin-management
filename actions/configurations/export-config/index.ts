@@ -118,7 +118,7 @@ async function tryFindOne (collection, query) {
   }
 }
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('export-config', { level: params.LOG_LEVEL || 'info' })
 
   // SECURITY: export decrypts and returns plaintext config (incl. secrets).
@@ -283,5 +283,3 @@ async function main (params) {
     try { await close() } catch (_) {}
   }
 }
-
-exports.main = main

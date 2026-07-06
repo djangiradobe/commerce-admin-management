@@ -82,7 +82,7 @@ function indexSchemaByPath (schema) {
   return idx
 }
 
-module.exports = {
+export {
   validateFieldValue,
   indexSchemaByPath
 }

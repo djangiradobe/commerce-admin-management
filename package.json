@@ -1,6 +1,6 @@
 {
   "name": "@adobedjangir/commerce-admin-management",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "description": "Schema-driven system configuration for Adobe Commerce App Builder sync apps. Magento-style scoped config in Adobe App Builder Database (ABDB) with encryption, Commerce REST helpers, and React Admin UI.",
   "license": "Apache-2.0",
   "author": "Adobe Inc.",
@@ -35,7 +35,10 @@
     "./web/styles.css": "./web/styles.css",
     "./web/dist/index.css": "./web/dist/index.css",
     "./web/src/styles/index.css": "./web/src/styles/index.css",
-    "./actions/utils": "./actions/utils.js",
+    "./actions/utils": {
+      "types": "./actions/utils.d.ts",
+      "default": "./actions/utils.js"
+    },
     "./actions/ext.config.yaml": "./actions/configurations/ext.config.yaml",
     "./scripts/discover": "./scripts/discover.js"
   },
@@ -48,7 +51,10 @@
     "DEVELOPER.md",
     "!**/*.ts",
     "!**/*.tsx",
-    "!tsconfig.json"
+    "!tsconfig.json",
+    "**/*.d.ts",
+    "!src/**/*.d.ts",
+    "!scripts/**/*.d.ts"
   ],
   "engines": {
     "node": ">=18"

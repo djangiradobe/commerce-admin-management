@@ -101,7 +101,7 @@ function buildStoreMappings (storeViews, websites, { includeAdmin }) {
   return mapping
 }
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('sync-store-mappings', { level: params.LOG_LEVEL || 'info' })
   // Writes store-mapping config → editor+ (a dryRun still reads Commerce with
   // server creds, so gate it too).
@@ -190,5 +190,3 @@ async function main (params) {
     try { await close() } catch (_) {}
   }
 }
-
-exports.main = main

@@ -41,7 +41,7 @@ function buildCredsFromParams (params) {
   }
 }
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('commerce-connection-save', { level: params.LOG_LEVEL || 'info' })
   // SECURITY: this sets which Commerce instance + credentials the WHOLE app
   // talks to. Admin-only, fail-closed.
@@ -80,5 +80,3 @@ async function main (params) {
     return errorResponse(500, error.message || 'save failed', logger)
   }
 }
-
-exports.main = main

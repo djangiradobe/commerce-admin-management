@@ -35,7 +35,7 @@ function buildCredsFromParams (params) {
   }
 }
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('commerce-connection-test', { level: params.LOG_LEVEL || 'info' })
   // Editor+ — this probes endpoints with (possibly form-supplied) credentials
   // and is part of the connection setup flow.
@@ -69,5 +69,3 @@ async function main (params) {
     return errorResponse(500, error.message || 'test failed', logger)
   }
 }
-
-exports.main = main

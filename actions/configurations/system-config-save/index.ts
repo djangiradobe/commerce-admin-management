@@ -113,7 +113,7 @@ function summarizeForAudit (path, value, sensitive) {
 // installed, recordAuditEntries() handles the write. When not, audit
 // entries are computed but discarded (write is a soft-no-op).
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('system-config-save', { level: params.LOG_LEVEL || 'info' })
 
   const errorMessage = checkMissingRequestInputs(params, ['values'], [])
@@ -327,5 +327,3 @@ async function main (params) {
     try { await close() } catch (_) {}
   }
 }
-
-exports.main = main

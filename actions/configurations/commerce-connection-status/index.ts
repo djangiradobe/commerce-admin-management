@@ -7,7 +7,7 @@ const { Core } = require('@adobe/aio-sdk')
 const { errorResponse, requireRole } = require('../../utils')
 const { probeCommerceCreds } = require('../../commerce-creds')
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('commerce-connection-status', { level: params.LOG_LEVEL || 'info' })
   const gate = await requireRole(params, 'viewer')
   if (gate) return gate
@@ -33,5 +33,3 @@ async function main (params) {
     return errorResponse(500, error.message || 'status failed', logger)
   }
 }
-
-exports.main = main

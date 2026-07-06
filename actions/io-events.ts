@@ -71,4 +71,4 @@ async function publishConfigEvent (params, payload, logger) {
   }
 }
 
-module.exports = { publishConfigEvent, isConfigured }
+export { publishConfigEvent, isConfigured }

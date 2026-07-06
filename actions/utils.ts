@@ -114,7 +114,7 @@ async function resolveCallerRole (params) {
   try { return await _rbacHook.resolveCallerRole(params) } catch (_) { return null }
 }
 
-module.exports = {
+export {
   errorResponse,
   checkMissingRequestInputs,
   logDetails,

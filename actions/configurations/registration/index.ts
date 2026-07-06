@@ -5,7 +5,7 @@ you may not use this file except in compliance with the License. You may obtain 
 of the License at http://www.apache.org/licenses/LICENSE-2.0
 */
 
-async function main (params: any = {}) {
+export async function main (params: any = {}) {
     const extensionId = 'CommerceAdminManagement'
 
     // Titles are configurable per project via .env (passed as action inputs):
@@ -46,5 +46,3 @@ async function main (params: any = {}) {
         }
     }
 }
-
-exports.main = main

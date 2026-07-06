@@ -239,7 +239,7 @@ async function upsertOne (collection, doc, { overwrite }) {
   }
 }
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('import-config', { level: params.LOG_LEVEL || 'info' })
 
   // SECURITY: mass-write path — same gate as system-config-save (editor+).
@@ -541,5 +541,3 @@ async function main (params) {
     try { await close() } catch (_) {}
   }
 }
-
-exports.main = main

@@ -96,20 +96,65 @@ function regenerate (root) {
   return { changed: false, count: addons.length }
 }
 
+// Read a single uncommented KEY=value from the project .env (no dotenv dep).
+function readEnvValue (root, key) {
+  const envPath = path.join(root, '.env')
+  if (!fs.existsSync(envPath)) return undefined
+  try {
+    for (const raw of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const line = raw.trim()
+      if (!line || line.startsWith('#')) continue
+      const eq = line.indexOf('=')
+      if (eq > 0 && line.slice(0, eq).trim() === key) return line.slice(eq + 1).trim()
+    }
+  } catch (_) { /* ignore */ }
+  return undefined
+}
+
+// Keep the generated SaaS Admin UI SDK registration action's menu titles in
+// sync with .env on every build. The lib bakes these statically at
+// `aio-commerce-lib-app init` time and nothing regenerates them afterward, so
+// editing APP_TITLE / APP_SECTION_TITLE in .env otherwise required re-running
+// the setup CLI. This runs as a pre-app-build hook. No-op when the generated
+// file is absent (PaaS, or a host that overrides backend-ui differently).
+function syncGeneratedRegistration (root) {
+  const file = path.join(root, 'src', 'commerce-backend-ui-1', '.generated', 'actions', 'registration', 'index.js')
+  if (!fs.existsSync(file)) return { changed: false, reason: 'no-generated-registration' }
+  const title = readEnvValue(root, 'APP_TITLE')
+  const section = readEnvValue(root, 'APP_SECTION_TITLE')
+  let src
+  try { src = fs.readFileSync(file, 'utf8') } catch (_) { return { changed: false, reason: 'unreadable' } }
+  const before = src
+  // Replace the `title:` that follows each menu item's id (keys are emitted
+  // alphabetically, so title always comes after id within the object).
+  const setTitleFor = (idSuffix, value) => {
+    if (value == null || value === '') return
+    const re = new RegExp('(id:\\s*["\']CommerceAdminManagement::' + idSuffix + '["\'][\\s\\S]*?title:\\s*)"(?:[^"\\\\]|\\\\.)*"')
+    src = src.replace(re, (_m, prefix) => prefix + JSON.stringify(value))
+  }
+  setTitleFor('configuration_management', title)
+  setTitleFor('apps', section)
+  if (src !== before) { fs.writeFileSync(file, src, 'utf8'); return { changed: true } }
+  return { changed: false, reason: 'up-to-date' }
+}
+
 function run () {
   const root = (process.env.INIT_CWD && findProjectRoot(process.env.INIT_CWD)) ||
                findProjectRoot(process.cwd())
-  if (!root) return { changed: false, count: 0, reason: 'no-project-root' }
-  return regenerate(root)
+  if (!root) return { changed: false, count: 0, reason: 'no-project-root', registration: { changed: false } }
+  const addons = regenerate(root)
+  const registration = syncGeneratedRegistration(root)
+  return { ...addons, registration }
 }
 
 if (require.main === module) {
   try {
     const r = run()
-    if (r.changed) console.log(`[@adobedjangir/commerce-admin-management] addons.js: registered ${r.count} add-on(s)`)
+    if (r.changed) console.log(`[@adobedjangir/commerce-admin-management] addons: registered ${r.count} add-on(s)`)
+    if (r.registration && r.registration.changed) console.log('[@adobedjangir/commerce-admin-management] synced SaaS registration titles from .env')
   } catch (err) {
     console.error('[@adobedjangir/commerce-admin-management] discover error (install continues):', err.message)
   }
 }
 
-module.exports = { run, discoverAddons, regenerate }
+module.exports = { run, discoverAddons, regenerate, syncGeneratedRegistration, readEnvValue }

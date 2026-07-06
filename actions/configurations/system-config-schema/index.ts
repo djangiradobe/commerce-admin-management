@@ -183,7 +183,7 @@ async function cascadeDeleteData (client, removedPaths, logger) {
   return { deletedCount, deletedPaths: paths }
 }
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('system-config-schema', { level: params.LOG_LEVEL || 'info' })
 
   const errorMessage = checkMissingRequestInputs(params, ['operation'], [])
@@ -350,5 +350,3 @@ async function main (params) {
     }
   }
 }
-
-exports.main = main

@@ -820,7 +820,16 @@ Run the setup CLI and answer **saas** when prompted:
 ```bash
 npx commerce-admin-management-setup
 # Which Adobe Commerce platform is this app for? [paas/saas] (default: paas): saas
+# App title — Commerce admin menu label (default: Configuration Management): …
+# Parent section label the menu sits under (default: Apps): …
+# In-app page/tab title (default: <App title>): …
 ```
+
+The CLI also prompts (paas **and** saas) for the three per-project titles and
+writes them to `.env` — `APP_TITLE`, `APP_SECTION_TITLE`, `APP_PAGE_TITLE`.
+Press Enter to keep the shown default (which pre-fills from any current `.env`
+value on a re-run). Skip individual prompts non-interactively with flags:
+`--app-title=…`, `--app-section-title=…`, `--app-page-title=…`.
 
 > `commerce-admin-management-setup` is the **bin** shipped by the
 > `@adobedjangir/commerce-admin-management` package (already in your

@@ -38,7 +38,7 @@ async function ensureCollection (client) {
  * Response:
  *   { scope, scopeId, items: { "<path>": { value, origin, sensitive } } }
  */
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('system-config-list', { level: params.LOG_LEVEL || 'info' })
 
   const gate = await requireRole(params, 'viewer')
@@ -126,5 +126,3 @@ async function main (params) {
     try { await close() } catch (_) {}
   }
 }
-
-exports.main = main

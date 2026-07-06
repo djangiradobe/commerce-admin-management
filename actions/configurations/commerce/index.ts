@@ -9,7 +9,7 @@ const { Core } = require('@adobe/aio-sdk')
 const { errorResponse, checkMissingRequestInputs, requireValidToken } = require('../../utils')
 const { getStoredCommerceOauthClient } = require('../../commerce-creds')
 
-async function main (params) {
+export async function main (params) {
   const logger = Core.Logger('main', { level: params.LOG_LEVEL || 'info' })
 
   try {
@@ -44,5 +44,3 @@ async function main (params) {
     return errorResponse(500, error, logger)
   }
 }
-
-exports.main = main
