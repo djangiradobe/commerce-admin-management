@@ -1,6 +1,6 @@
 {
   "name": "@adobedjangir/commerce-admin-management",
-  "version": "1.0.18",
+  "version": "1.0.20",
   "description": "Schema-driven system configuration for Adobe Commerce App Builder sync apps. Magento-style scoped config in Adobe App Builder Database (ABDB) with encryption, Commerce REST helpers, and React Admin UI.",
   "license": "Apache-2.0",
   "author": "Adobe Inc.",
@@ -19,9 +19,9 @@
     "commerce-admin-management-setup": "./scripts/setup.js"
   },
   "scripts": {
-    "build": "node ./scripts/build-web.js",
-    "prepublishOnly": "node ./scripts/build-web.js",
-    "postinstall": "node ./scripts/setup.js && node ./scripts/discover.js"
+    "build": "tsc -p tsconfig.json && node ./scripts/build-web.js",
+    "postinstall": "node -e \"const cp=require('child_process'),fs=require('fs');for(const s of ['./scripts/setup.js','./scripts/discover.js'])if(fs.existsSync(s))cp.spawnSync(process.execPath,[s],{stdio:'inherit'});\"",
+    "prepare": "npm run build"
   },
   "exports": {
     ".": "./src/index.js",
@@ -45,13 +45,20 @@
     "actions",
     "scripts",
     "README.md",
-    "DEVELOPER.md"
+    "DEVELOPER.md",
+    "!**/*.ts",
+    "!**/*.tsx",
+    "!tsconfig.json"
   ],
   "engines": {
     "node": ">=18"
   },
   "peerDependencies": {},
   "peerDependenciesMeta": {},
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "@types/node": "^20.0.0"
+  },
   "dependencies": {
     "@adobedjangir/commerce-admin-get-config": "^1.0.1",
     "@adobe/aio-lib-core-auth": "^1.1.0",

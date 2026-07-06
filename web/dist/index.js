@@ -1,16 +1,16 @@
-// web/src/components/App.js
+// web/src/components/App.tsx
 import React5 from "react";
 import { Provider as Provider2, lightTheme as lightTheme2 } from "@adobe/react-spectrum";
 import { ErrorBoundary as ErrorBoundary2 } from "react-error-boundary";
 import { Route, Routes, HashRouter } from "react-router-dom";
 
-// web/src/components/ExtensionRegistration.js
+// web/src/components/ExtensionRegistration.tsx
 import { register } from "@adobe/uix-guest";
 
-// web/src/components/MainPage.js
+// web/src/components/MainPage.tsx
 import { View as View4, Flex as Flex4, ProgressCircle as ProgressCircle4, Text as Text4, Button as Button4, IllustratedMessage, Heading as Heading4 } from "@adobe/react-spectrum";
 import { attach } from "@adobe/uix-guest";
-import React4, { useEffect as useEffect7, useState as useState8, useCallback as useCallback5 } from "react";
+import { useEffect as useEffect7, useState as useState8, useCallback as useCallback5 } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 import { useLocation as useLocation2 } from "react-router-dom";
 
@@ -33,9 +33,8 @@ var nav_default = {
   ]
 };
 
-// web/src/components/SystemConfig.js
+// web/src/components/SystemConfig.tsx
 import { useState as useState5, useMemo as useMemo3, useEffect as useEffect5, useRef as useRef2, useCallback as useCallback4 } from "react";
-import { Link } from "react-router-dom";
 import {
   View as View2,
   Flex as Flex2,
@@ -53,7 +52,6 @@ import {
   Checkbox as Checkbox2,
   Picker as Picker2,
   Item as Item2,
-  Section,
   ProgressCircle as ProgressCircle2,
   ProgressBar,
   Divider as Divider2,
@@ -71,14 +69,13 @@ import Refresh from "@spectrum-icons/workflow/Refresh";
 import Edit from "@spectrum-icons/workflow/Edit";
 import CloudUpload from "@spectrum-icons/workflow/UploadToCloud";
 import LockClosed from "@spectrum-icons/workflow/LockClosed";
-import Back from "@spectrum-icons/workflow/Back";
 import ChevronDown from "@spectrum-icons/workflow/ChevronDown";
 import ChevronRight from "@spectrum-icons/workflow/ChevronRight";
 
-// web/src/hooks/useSystemConfig.js
+// web/src/hooks/useSystemConfig.tsx
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-// web/src/utils.js
+// web/src/utils.tsx
 function resolveActor(ims) {
   if (!ims || typeof ims !== "object") return "anonymous";
   const profile = ims.profile || {};
@@ -151,7 +148,7 @@ async function callActionGet(props, action, query = {}) {
   return parsed;
 }
 
-// web/src/schema/systemConfigSchema.js
+// web/src/schema/systemConfigSchema.tsx
 var FIELD_TYPES = ["text", "textarea", "password", "number", "select", "boolean"];
 var SCOPES = ["default", "websites", "stores"];
 var SENSITIVE_FIELD_TYPES = /* @__PURE__ */ new Set(["password"]);
@@ -274,7 +271,7 @@ function validateSchema(schema, values) {
   return errors;
 }
 
-// web/src/utils/storeMappingsFromCommerceRest.js
+// web/src/utils/storeMappingsFromCommerceRest.tsx
 function localeToLanguageCode(locale) {
   if (locale == null || locale === "") return null;
   const s = String(locale).trim();
@@ -323,7 +320,7 @@ function buildStoreMappingsFromCommercePayload(websitesRaw, storeViewsRaw, store
   return mappings;
 }
 
-// web/src/hooks/useSystemConfig.js
+// web/src/hooks/useSystemConfig.tsx
 var SENSITIVE_PLACEHOLDER = "__SENSITIVE_UNCHANGED__";
 var USE_DEFAULT_SENTINEL = "__USE_DEFAULT__";
 var DEFAULT_SCOPE = { scope: "default", scopeId: "0" };
@@ -603,7 +600,7 @@ function useSystemConfig(props, schema) {
   };
 }
 
-// web/src/hooks/useSystemConfigSchema.js
+// web/src/hooks/useSystemConfigSchema.tsx
 import { useCallback as useCallback2, useEffect as useEffect2, useState as useState2 } from "react";
 function useSystemConfigSchema(props) {
   const [schema, setSchema] = useState2(emptySchema());
@@ -692,11 +689,11 @@ function useSystemConfigSchema(props) {
   };
 }
 
-// web/src/hooks/useConfirm.js
+// web/src/hooks/useConfirm.tsx
 import React, { useCallback as useCallback3, useEffect as useEffect3, useRef, useState as useState3 } from "react";
 import ReactDOM from "react-dom";
 
-// web/src/theme.js
+// web/src/theme.tsx
 var THEME = {
   color: {
     bg: "var(--sm-color-bg)",
@@ -777,7 +774,7 @@ var SHADOW = { ...THEME.shadow };
 var SPACE = { ...THEME.space };
 var FONT = { ...THEME.font };
 
-// web/src/hooks/useConfirm.js
+// web/src/hooks/useConfirm.tsx
 import { jsx, jsxs } from "react/jsx-runtime";
 function useConfirm() {
   const [state, setState] = useState3(null);
@@ -1125,7 +1122,7 @@ function ConfirmModal({ options, onConfirm, onCancel, onChoose }) {
   );
 }
 
-// web/src/components/SystemConfigSchemaEditor.js
+// web/src/components/SystemConfigSchemaEditor.tsx
 import { useEffect as useEffect4, useMemo as useMemo2, useState as useState4 } from "react";
 import {
   View,
@@ -1140,11 +1137,10 @@ import {
   Switch,
   Checkbox,
   Divider,
-  Well,
-  ProgressCircle
+  Well
 } from "@adobe/react-spectrum";
 
-// web/src/schema/validation-presets.js
+// web/src/schema/validation-presets.tsx
 var PRESETS = [
   {
     id: "free-text",
@@ -1349,7 +1345,7 @@ function applyPreset(presetId, field) {
   return { ...(field == null ? void 0 : field.validation) || {}, ...patch, preset: presetId };
 }
 
-// web/src/components/SystemConfigSchemaEditor.js
+// web/src/components/SystemConfigSchemaEditor.tsx
 import { Fragment, jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
 var ID_RE = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 var _uidSeq = 0;
@@ -2147,7 +2143,7 @@ function SystemConfigSchemaEditor({ schema, onSave, onCancel, saving, error, pal
   ] });
 }
 
-// web/src/components/SystemConfig.js
+// web/src/components/SystemConfig.tsx
 import { Fragment as Fragment2, jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
 var useUserRole = (props) => getUserRoleProvider()(props);
 var ROLE_RANK_LOCAL = { viewer: 0, editor: 1, admin: 2 };
@@ -3766,12 +3762,12 @@ function SystemConfig(props) {
   );
 }
 
-// web/src/pages/index.js
+// web/src/pages/index.tsx
 var BUILT_IN_PAGES = {
   "system-config": SystemConfig
 };
 
-// web/src/settings.js
+// web/src/settings.tsx
 var DEFAULT_ACTION_KEYS = {
   commerceRestGet: "CommerceAdminManagement/commerce-rest-get",
   systemConfigList: "CommerceAdminManagement/system-config-list",
@@ -3886,14 +3882,14 @@ function configureWeb({
   }
 }
 
-// web/src/components/AppSectionNav.js
-import React2, { useEffect as useEffect6, useRef as useRef3, useState as useState6, useLayoutEffect } from "react";
+// web/src/components/AppSectionNav.tsx
+import { useEffect as useEffect6, useRef as useRef3, useState as useState6, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { Provider, lightTheme } from "@adobe/react-spectrum";
 import { useLocation, useNavigate } from "react-router-dom";
 import ChevronDown2 from "@spectrum-icons/workflow/ChevronDown";
 
-// web/src/nav-icons.js
+// web/src/nav-icons.tsx
 import Settings2 from "@spectrum-icons/workflow/Settings";
 import Properties from "@spectrum-icons/workflow/Properties";
 import Data from "@spectrum-icons/workflow/Data";
@@ -3918,7 +3914,7 @@ function getNavIcon(name) {
   return NAV_ICONS[name] || Settings2;
 }
 
-// web/src/components/AppSectionNav.js
+// web/src/components/AppSectionNav.tsx
 import { Fragment as Fragment3, jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
 function AppSectionNav({ rightSlot } = {}) {
   const navigate = useNavigate();
@@ -4078,8 +4074,8 @@ function ParentTab({ item, isActive, activePath, onSelect }) {
   ] });
 }
 
-// web/src/components/CommerceSetupWizard.js
-import React3, { useMemo as useMemo4, useState as useState7 } from "react";
+// web/src/components/CommerceSetupWizard.tsx
+import { useMemo as useMemo4, useState as useState7 } from "react";
 import {
   View as View3,
   Flex as Flex3,
@@ -4297,7 +4293,7 @@ function CommerceSetupWizard({ runtime, ims, initial, onCompleted, onCancel, dec
   ] });
 }
 
-// web/src/components/MainPage.js
+// web/src/components/MainPage.tsx
 import { jsx as jsx6, jsxs as jsxs6 } from "react/jsx-runtime";
 var MainPage = (props) => {
   const location = useLocation2();
@@ -4403,7 +4399,7 @@ var MainPage = (props) => {
   ] });
 };
 
-// web/src/components/ExtensionRegistration.js
+// web/src/components/ExtensionRegistration.tsx
 import { useEffect as useEffect8 } from "react";
 import { jsx as jsx7 } from "react/jsx-runtime";
 function ExtensionRegistration(props) {
@@ -4418,7 +4414,7 @@ function ExtensionRegistration(props) {
   return /* @__PURE__ */ jsx7(MainPage, { ims: props.ims, runtime: props.runtime });
 }
 
-// web/src/components/App.js
+// web/src/components/App.tsx
 import { jsx as jsx8, jsxs as jsxs7 } from "react/jsx-runtime";
 function App(props) {
   props.runtime.on("configuration", ({ imsOrg, imsToken }) => {
