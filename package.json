@@ -1,6 +1,6 @@
 {
   "name": "@adobedjangir/commerce-admin-management",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "description": "Schema-driven system configuration for Adobe Commerce App Builder sync apps. Magento-style scoped config in Adobe App Builder Database (ABDB) with encryption, Commerce REST helpers, and React Admin UI.",
   "license": "Apache-2.0",
   "author": "Adobe Inc.",
