@@ -850,11 +850,15 @@ For **saas** this does everything for you:
 2. Seeds `app.commerce.config.ts` — metadata + an `adminUiSdk.registration`
    block whose `menuItems` mirror the PaaS registration action (same ids;
    titles from `APP_TITLE` / `APP_SECTION_TITLE`).
-3. Runs `npx @adobe/aio-commerce-lib-app init`, which — because a valid config
-   already exists — runs **non-interactively**: it installs the App Management
-   deps and wires `install.yaml`, the `commerce/extensibility/1` extension, and
-   the `postinstall` hook.
-4. Rewires `app.config.yaml` to the SaaS extension layout: `commerce/backend-ui/1`
+3. Installs the App Management deps (via `npm install`, through a shell) and runs
+   `npx @adobe/aio-commerce-lib-app generate all` to create the
+   `commerce/extensibility/1` ext.config + runtime actions + manifest, then adds
+   `install.yaml` and the `postinstall` hook. (We deliberately do **not** use the
+   lib's `init` command: its dependency-install step calls `spawnSync('npm')`
+   without a shell, which throws `spawnSync npm ENOENT` on **Windows**. `npm
+   install` via a shell + `generate all` avoids that, so this works on Windows.)
+4. Rewires `app.config.yaml` to the SaaS extension layout: adds
+   `commerce/extensibility/1`; `commerce/backend-ui/1`
    → our `backend-ui.saas.yaml` fragment (env-driven registration action +
    web-src); the core `CommerceAdminManagement` package + the `database` block
    move under `application.runtimeManifest`; and the addon discovery hook moves

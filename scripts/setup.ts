@@ -1189,24 +1189,81 @@ function writeCommerceAppConfig (projectRoot) {
 // Run Adobe's official scaffolder. Because a valid app.commerce.config.* is
 // already in place, this is non-interactive: it installs the App Management
 // deps and wires everything. Never hard-fails the setup.
+const APP_MGMT_DEPS = '@adobe/aio-commerce-sdk @adobe/aio-commerce-lib-app@^1.7.0'
+const EXTENSIBILITY_INCLUDE = 'src/commerce-extensibility-1/ext.config.yaml'
+
+// Scaffold the App Management artifacts WITHOUT the lib's `init` command.
+// Why not `init`: its first step, runInstall(), calls spawnSync('npm', …)
+// WITHOUT shell:true, which throws `spawnSync npm ENOENT` on Windows (Node can't
+// resolve npm.cmd without a shell) — and it runs unconditionally, so init can
+// never complete on Windows. We instead: (1) install the deps via execSync
+// (a shell, so npm.cmd resolves on Windows), and (2) run `generate all`, which
+// creates the ext.config + runtime actions + manifest and does NOT spawn npm.
 function runCommerceInit (projectRoot) {
   const { execSync } = require('child_process')
-  console.log('[@adobedjangir/commerce-admin-management] running `npx @adobe/aio-commerce-lib-app init` (installs App Management deps + wiring)…')
+  const opts = {
+    cwd: projectRoot,
+    stdio: 'inherit',
+    env: { ...process.env, COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP: '1' }
+  }
+  // 1. Install the App Management deps (needed at build time). execSync runs
+  //    through a shell → npm.cmd resolves on Windows (the lib's spawnSync does
+  //    not). Idempotent — a no-op reinstall if already present.
+  console.log(`[@adobedjangir/commerce-admin-management] installing App Management deps (${APP_MGMT_DEPS})…`)
   try {
-    execSync('npx --yes @adobe/aio-commerce-lib-app init', {
-      cwd: projectRoot,
-      stdio: 'inherit',
-      // Guard: init runs `npm install`, which retriggers our postinstall —
-      // this makes that nested run a no-op instead of recursing.
-      env: { ...process.env, COMMERCE_ADMIN_MANAGEMENT_SKIP_SETUP: '1' }
-    })
-    return { ok: true }
+    execSync(`npm install ${APP_MGMT_DEPS} --save --no-audit --no-fund`, opts)
   } catch (e) {
-    console.warn('[@adobedjangir/commerce-admin-management] init failed — run it manually from the project root:')
-    console.warn('  npx @adobe/aio-commerce-lib-app init')
+    console.warn(`[@adobedjangir/commerce-admin-management] dep install failed (continuing; may already be present): ${e.message}`)
+  }
+  // 2. Generate ext.config + runtime actions + manifest. `generate all` does
+  //    NOT spawn npm, so it works on Windows (unlike `init`).
+  console.log('[@adobedjangir/commerce-admin-management] generating App Management artifacts (npx @adobe/aio-commerce-lib-app generate all)…')
+  try {
+    execSync('npx --yes @adobe/aio-commerce-lib-app generate all', opts)
+  } catch (e) {
+    console.warn('[@adobedjangir/commerce-admin-management] generate failed — run manually from the project root:')
+    console.warn('  npm i @adobe/aio-commerce-sdk @adobe/aio-commerce-lib-app@1.7.0 && npx @adobe/aio-commerce-lib-app generate all')
     console.warn(`  reason: ${e.message}`)
     return { ok: false, error: e.message }
   }
+  // 3. install.yaml + the App Management postinstall hook (init does these; the
+  //    standalone `generate` does not).
+  ensureInstallYaml(projectRoot)
+  ensureAppMgmtPostinstall(projectRoot)
+  return { ok: true }
+}
+
+// Ensure install.yaml lists the commerce/extensibility/1 extension (App
+// Management reads it at install time). Idempotent.
+function ensureInstallYaml (projectRoot) {
+  const p = path.join(projectRoot, 'install.yaml')
+  let c = ''
+  try { c = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '' } catch (_) { c = '' }
+  if (/commerce\/extensibility\/1/.test(c)) return
+  const block = 'extensions:\n  # Required for App Management. Do not remove.\n  - extensionPointId: commerce/extensibility/1\n'
+  if (!c.trim()) { fs.writeFileSync(p, block, 'utf8'); return }
+  if (/^extensions:/m.test(c)) {
+    // append under existing extensions:
+    fs.writeFileSync(p, c.replace(/(^extensions:[ \t]*\n)/m, `$1  - extensionPointId: commerce/extensibility/1\n`), 'utf8')
+  } else {
+    fs.writeFileSync(p, c.replace(/\s*$/, '') + '\n\n' + block, 'utf8')
+  }
+}
+
+// Ensure the host package.json has the aio-commerce-lib-app postinstall hook
+// (regenerates App Management artifacts on install). Idempotent; won't clobber
+// an existing postinstall — appends if a different one is present.
+function ensureAppMgmtPostinstall (projectRoot) {
+  const pkgPath = path.join(projectRoot, 'package.json')
+  if (!fs.existsSync(pkgPath)) return
+  let pkg
+  try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) } catch (_) { return }
+  const hook = 'npx aio-commerce-lib-app hooks postinstall'
+  pkg.scripts = pkg.scripts || {}
+  const cur = pkg.scripts.postinstall || ''
+  if (cur.includes('aio-commerce-lib-app hooks postinstall')) return
+  pkg.scripts.postinstall = cur ? `${cur} && ${hook}` : hook
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8')
 }
 
 // Re-wire app.config.yaml for the SaaS/App Management extension model, AFTER
@@ -1280,6 +1337,14 @@ function wireSaasAppConfig (projectRoot) {
   if (!doc.hasIn(CAM)) {
     doc.setIn([...CAM, '$include'], CORE_PKG_INCLUDE)
     changes.push('application-core-package')
+  }
+
+  // 5. Register the App Management extension itself (init used to add this;
+  //    `generate all` creates the ext.config file but not the app.config entry).
+  const EXT = ['extensions', 'commerce/extensibility/1']
+  if (fs.existsSync(path.join(projectRoot, EXTENSIBILITY_INCLUDE)) && !doc.hasIn(EXT)) {
+    doc.setIn([...EXT, '$include'], EXTENSIBILITY_INCLUDE)
+    changes.push('add-extensibility')
   }
 
   if (changes.length === 0) return { changed: false, reason: 'already-wired' }
@@ -1499,10 +1564,13 @@ function main () {
   if (saas.platform === 'saas' && saas.wired === false) {
     console.log(
       '\n[@adobedjangir/commerce-admin-management] COMMERCE_PLATFORM=saas but App Management is not wired yet.\n' +
-      '  Run the official one-time scaffolder from your project root:\n' +
-      '    npx @adobe/aio-commerce-lib-app init   (select "Custom Installation Steps" only)\n' +
-      '  Then customize app.commerce.config.* metadata (displayName → your APP_TITLE)\n' +
-      '  and deploy with:  aio app build --force-build && aio app deploy --force-deploy --no-build\n' +
+      '  Run the setup CLI to wire it (Windows-safe — uses `generate all`, not the\n' +
+      '  init command whose npm-install step fails on Windows):\n' +
+      '    npx commerce-admin-management-setup --saas\n' +
+      '  Manual equivalent, if needed:\n' +
+      '    npm i @adobe/aio-commerce-sdk @adobe/aio-commerce-lib-app@1.7.0\n' +
+      '    npx @adobe/aio-commerce-lib-app generate all\n' +
+      '  Then deploy: aio app build --force-build && aio app deploy --force-deploy --no-build\n' +
       '  PaaS installs can ignore this — leave COMMERCE_PLATFORM=paas.\n'
     )
   } else if (saas.platform === 'saas' && saas.wired === true) {
@@ -1597,6 +1665,8 @@ module.exports = {
   writeCommerceAppConfig,
   commerceAppConfigContents,
   wireSaasAppConfig,
+  ensureInstallYaml,
+  ensureAppMgmtPostinstall,
   unwireSaasAppConfig,
   isSaasLayout,
   enableSaas,
