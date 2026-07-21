@@ -205,6 +205,7 @@ function validateLocal (schema) {
 
 function FieldEditor ({ field, onChange, onRemove, dragging }) {
   const update = (patch) => onChange({ ...field, ...patch })
+  const [advOpen, setAdvOpen] = useState(false)
 
   const addOption = () => {
     update({ options: [...(field.options || []), { value: '', label: '' }] })
@@ -253,19 +254,6 @@ function FieldEditor ({ field, onChange, onRemove, dragging }) {
         >
           {FIELD_TYPES.map((t) => <Item key={t}>{t}</Item>)}
         </Picker>
-        <TextField
-          label="Default"
-          value={field.default == null ? '' : String(field.default)}
-          onChange={(v) => update({ default: v })}
-          width="size-2400"
-        />
-        <TextField
-          label="Sort order"
-          value={String(field.sortOrder ?? 0)}
-          onChange={(v) => update({ sortOrder: Number(v) || 0 })}
-          width="size-1200"
-          type="number"
-        />
         <ActionButton onPress={onRemove}>Remove field</ActionButton>
       </Flex>
 
@@ -288,17 +276,6 @@ function FieldEditor ({ field, onChange, onRemove, dragging }) {
         <Switch isSelected={!!field.sensitive} onChange={(v) => update({ sensitive: v })}>
           Sensitive (encrypt at rest)
         </Switch>
-        <Picker
-          label="Min role"
-          selectedKey={field.requiredRole || 'none'}
-          onSelectionChange={(k) => update({ requiredRole: k === 'none' ? undefined : k })}
-          width="size-1700"
-        >
-          <Item key="none">(anyone)</Item>
-          <Item key="viewer">viewer</Item>
-          <Item key="editor">editor</Item>
-          <Item key="admin">admin</Item>
-        </Picker>
       </Flex>
 
       {field.type === 'select' && (
@@ -327,7 +304,55 @@ function FieldEditor ({ field, onChange, onRemove, dragging }) {
         </View>
       )}
 
-      <ValidationEditor field={field} onChange={onChange} />
+      {/* Advanced Options — collapsed by default. Holds the less-common
+          per-field settings (Default value, Sort order, Min role) plus the
+          full Validation editor, so the common row stays uncluttered. */}
+      <View marginTop="size-200">
+        <ActionButton isQuiet onPress={() => setAdvOpen((o) => !o)}>
+          <Text UNSAFE_style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 0.6,
+            textTransform: 'uppercase',
+            color: PALETTE.textMuted
+          }}>
+            {advOpen ? '▾' : '▸'} Advanced Options
+          </Text>
+        </ActionButton>
+
+        {advOpen && (
+          <View marginTop="size-150">
+            <Flex gap="size-150" wrap alignItems="end">
+              <TextField
+                label="Default"
+                value={field.default == null ? '' : String(field.default)}
+                onChange={(v) => update({ default: v })}
+                width="size-2400"
+              />
+              <TextField
+                label="Sort order"
+                value={String(field.sortOrder ?? 0)}
+                onChange={(v) => update({ sortOrder: Number(v) || 0 })}
+                width="size-1200"
+                type="number"
+              />
+              <Picker
+                label="Min role"
+                selectedKey={field.requiredRole || 'none'}
+                onSelectionChange={(k) => update({ requiredRole: k === 'none' ? undefined : k })}
+                width="size-1700"
+              >
+                <Item key="none">(anyone)</Item>
+                <Item key="viewer">viewer</Item>
+                <Item key="editor">editor</Item>
+                <Item key="admin">admin</Item>
+              </Picker>
+            </Flex>
+
+            <ValidationEditor field={field} onChange={onChange} />
+          </View>
+        )}
+      </View>
     </div>
   )
 }
