@@ -7,7 +7,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 const { Core } = require('@adobe/aio-sdk')
 const { errorResponse, checkMissingRequestInputs, logDetails } = require('../../utils')
-const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
+const { getClient } = require('@adobedjangir/abdb')
 const {
   SENSITIVE_PLACEHOLDER,
   USE_DEFAULT_SENTINEL,

@@ -15,7 +15,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 // as a unit (one ciphertext) rather than per-field, since the blob is read
 // atomically and stored at a single key.
 
-const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
+const { getClient } = require('@adobedjangir/abdb')
 const { toStateKey } = require('@adobedjangir/commerce-admin-management/shared')
 const { encrypt, decrypt, isEncrypted } = require('@adobedjangir/commerce-admin-management/crypto')
 const { getCommerceOauthClient } = require('@adobedjangir/commerce-admin-management/oauth1a')

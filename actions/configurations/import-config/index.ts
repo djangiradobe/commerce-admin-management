@@ -33,7 +33,7 @@ of the License at http://www.apache.org/licenses/LICENSE-2.0
 
 const { Core } = require('@adobe/aio-sdk')
 const { errorResponse, requireRole } = require('../../utils')
-const { getClient } = require('@adobedjangir/commerce-admin-management/abdb')
+const { getClient } = require('@adobedjangir/abdb')
 const { isValidPath, toStateKey, normalizeScope, normalizeScopeId } = require('@adobedjangir/commerce-admin-management/shared')
 const { getCommerceOauthClient } = require('@adobedjangir/commerce-admin-management/oauth1a')
 const { isEncrypted, decrypt, encrypt } = require('@adobedjangir/commerce-admin-management/crypto')
